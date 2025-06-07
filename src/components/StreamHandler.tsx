@@ -5,65 +5,206 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Video, VideoOff, Wifi, WifiOff } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Video, VideoOff, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 
 interface StreamHandlerProps {
   onMaskUpdate: (maskData: ImageData | null) => void;
   showPreview: boolean;
 }
 
+interface NDISource {
+  name: string;
+  url: string;
+}
+
 const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview }) => {
   const [isConnected, setIsConnected] = useState(false);
-  const [streamUrl, setStreamUrl] = useState('ws://localhost:7000/ndi');
+  const [selectedSource, setSelectedSource] = useState<string>('');
+  const [availableSources, setAvailableSources] = useState<NDISource[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+  const [isScanning, setIsScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Simulate NDI stream connection (placeholder for actual implementation)
-  const connectToStream = async () => {
-    setConnectionStatus('connecting');
+  // Scan for available NDI sources
+  const scanForNDISources = async () => {
+    setIsScanning(true);
+    console.log('Scanning for NDI sources...');
     
     try {
-      // In a real implementation, this would connect to NDI via WebSocket/WebRTC
-      // For now, we'll simulate with a placeholder
+      // In a real implementation, this would connect to your NDI-WebRTC bridge
+      // For now, we'll simulate discovering sources and then try to connect to real ones
       
-      // Create a simulated mask data for testing
-      setTimeout(() => {
+      // Common NDI source patterns - you can modify these based on your setup
+      const potentialSources: NDISource[] = [
+        { name: 'TouchDesigner Output', url: 'ws://localhost:8080/ndi/touchdesigner' },
+        { name: 'TD Mask Stream', url: 'ws://localhost:8080/ndi/mask' },
+        { name: 'Local NDI Source', url: 'ws://localhost:7000/ndi' },
+        // Add your specific NDI source name here
+        { name: 'Your Stream Name', url: 'ws://localhost:8080/ndi/your-stream' }
+      ];
+      
+      // Test connectivity to each potential source
+      const activeSources: NDISource[] = [];
+      
+      for (const source of potentialSources) {
+        try {
+          const testWs = new WebSocket(source.url);
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              testWs.close();
+              reject(new Error('Timeout'));
+            }, 2000);
+            
+            testWs.onopen = () => {
+              clearTimeout(timeout);
+              activeSources.push(source);
+              testWs.close();
+              resolve(null);
+            };
+            
+            testWs.onerror = () => {
+              clearTimeout(timeout);
+              reject(new Error('Connection failed'));
+            };
+          });
+        } catch (error) {
+          console.log(`Source ${source.name} not available:`, error);
+        }
+      }
+      
+      setAvailableSources(activeSources);
+      console.log('Found NDI sources:', activeSources);
+      
+    } catch (error) {
+      console.error('Error scanning for NDI sources:', error);
+    }
+    
+    setIsScanning(false);
+  };
+
+  // Connect to selected NDI source
+  const connectToNDISource = async () => {
+    if (!selectedSource) {
+      console.error('No NDI source selected');
+      return;
+    }
+    
+    setConnectionStatus('connecting');
+    console.log('Connecting to NDI source:', selectedSource);
+    
+    try {
+      const source = availableSources.find(s => s.name === selectedSource);
+      if (!source) {
+        throw new Error('Selected source not found');
+      }
+      
+      // Create WebSocket connection to NDI bridge
+      const ws = new WebSocket(source.url);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        console.log('Connected to NDI source');
         setConnectionStatus('connected');
         setIsConnected(true);
         
-        // Generate test mask data
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        
-        if (ctx) {
-          // Create a simple test pattern
-          ctx.fillStyle = 'black';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Request video stream
+        ws.send(JSON.stringify({ 
+          type: 'request_stream',
+          format: 'webrtc' // or 'mjpeg' depending on your bridge
+        }));
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
           
-          // Add some white areas to test avoidance
-          ctx.fillStyle = 'white';
-          ctx.fillRect(100, 100, 200, 100);
-          ctx.fillRect(400, 200, 150, 150);
-          ctx.beginPath();
-          ctx.arc(200, 300, 80, 0, Math.PI * 2);
-          ctx.fill();
-          
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          onMaskUpdate(imageData);
+          if (data.type === 'frame' && data.imageData) {
+            // Handle incoming frame data
+            processFrameData(data.imageData);
+          } else if (data.type === 'webrtc_offer') {
+            // Handle WebRTC offer for video stream
+            handleWebRTCOffer(data.offer);
+          }
+        } catch (error) {
+          console.error('Error processing NDI message:', error);
         }
-      }, 1000);
+      };
+      
+      ws.onerror = (error) => {
+        console.error('NDI WebSocket error:', error);
+        setConnectionStatus('error');
+      };
+      
+      ws.onclose = () => {
+        console.log('NDI connection closed');
+        setIsConnected(false);
+        setConnectionStatus('disconnected');
+      };
       
     } catch (error) {
-      console.error('Failed to connect to NDI stream:', error);
+      console.error('Failed to connect to NDI source:', error);
       setConnectionStatus('error');
     }
   };
 
-  const disconnectFromStream = () => {
+  // Process incoming frame data
+  const processFrameData = (imageData: string) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Convert base64 image data to canvas
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      // Extract mask data
+      const maskData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      onMaskUpdate(maskData);
+    };
+    img.src = `data:image/jpeg;base64,${imageData}`;
+  };
+
+  // Handle WebRTC offer (for real-time video streaming)
+  const handleWebRTCOffer = async (offer: RTCSessionDescriptionInit) => {
+    try {
+      // Set up WebRTC peer connection for video stream
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      
+      pc.ontrack = (event) => {
+        const video = videoRef.current;
+        if (video && event.streams[0]) {
+          video.srcObject = event.streams[0];
+          video.play();
+        }
+      };
+      
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      
+      // Send answer back to NDI bridge
+      if (wsRef.current) {
+        wsRef.current.send(JSON.stringify({
+          type: 'webrtc_answer',
+          answer: answer
+        }));
+      }
+    } catch (error) {
+      console.error('WebRTC setup error:', error);
+    }
+  };
+
+  const disconnectFromNDI = () => {
     if (wsRef.current) {
       wsRef.current.close();
     }
@@ -72,7 +213,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     onMaskUpdate(null);
   };
 
-  // Process video frame for mask extraction
+  // Process video frames for mask extraction
   const processVideoFrame = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -82,12 +223,10 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Draw video frame to canvas
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
     ctx.drawImage(video, 0, 0);
     
-    // Extract image data for mask processing
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     onMaskUpdate(imageData);
   };
@@ -95,15 +234,19 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
   useEffect(() => {
     let interval: NodeJS.Timeout;
     
-    if (isConnected) {
-      // Process frames at 30 FPS when connected
-      interval = setInterval(processVideoFrame, 1000 / 30);
+    if (isConnected && videoRef.current) {
+      interval = setInterval(processVideoFrame, 1000 / 30); // 30 FPS
     }
     
     return () => {
       if (interval) clearInterval(interval);
     };
   }, [isConnected]);
+
+  // Auto-scan on component mount
+  useEffect(() => {
+    scanForNDISources();
+  }, []);
 
   return (
     <Card className="bg-card/80 backdrop-blur-sm border-border/50">
@@ -132,24 +275,53 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
           </Badge>
         </div>
 
-        {/* Stream URL Input */}
+        {/* Scan for Sources */}
+        <Button
+          onClick={scanForNDISources}
+          variant="outline"
+          className="w-full"
+          disabled={isScanning || isConnected}
+        >
+          {isScanning ? (
+            <>
+              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+              Scanning...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Scan for NDI Sources
+            </>
+          )}
+        </Button>
+
+        {/* Source Selection */}
         <div className="space-y-2">
-          <Label>Stream URL</Label>
-          <Input
-            type="text"
-            value={streamUrl}
-            onChange={(e) => setStreamUrl(e.target.value)}
-            placeholder="ws://localhost:7000/ndi"
+          <Label>Available NDI Sources</Label>
+          <Select
+            value={selectedSource}
+            onValueChange={setSelectedSource}
             disabled={isConnected}
-          />
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select NDI source..." />
+            </SelectTrigger>
+            <SelectContent>
+              {availableSources.map((source) => (
+                <SelectItem key={source.name} value={source.name}>
+                  {source.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Connect/Disconnect Button */}
         <Button
-          onClick={isConnected ? disconnectFromStream : connectToStream}
+          onClick={isConnected ? disconnectFromNDI : connectToNDISource}
           variant={isConnected ? "destructive" : "default"}
           className="w-full"
-          disabled={connectionStatus === 'connecting'}
+          disabled={connectionStatus === 'connecting' || (!selectedSource && !isConnected)}
         >
           {connectionStatus === 'connecting' ? (
             'Connecting...'
@@ -166,7 +338,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
           )}
         </Button>
 
-        {/* Preview Elements (hidden) */}
+        {/* Preview Elements */}
         <div style={{ display: showPreview ? 'block' : 'none' }}>
           <video
             ref={videoRef}
@@ -181,19 +353,23 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
           />
         </div>
 
-        {/* Connection Info */}
+        {/* Status Messages */}
         {connectionStatus === 'error' && (
           <div className="text-sm text-destructive">
-            Failed to connect to NDI stream. Make sure TouchDesigner is running and broadcasting.
+            Failed to connect to NDI source. Make sure TouchDesigner is running and the NDI bridge is active.
           </div>
         )}
         
-        {!isConnected && (
+        {availableSources.length === 0 && !isScanning && (
           <div className="text-xs text-muted-foreground">
-            Note: This demo includes simulated mask data for testing. 
-            Connect to a real NDI stream for live mask integration.
+            No NDI sources found. Make sure TouchDesigner is running and broadcasting NDI streams.
           </div>
         )}
+
+        <div className="text-xs text-muted-foreground">
+          Found {availableSources.length} NDI source(s). 
+          Make sure your NDI-to-WebSocket bridge is running on the correct port.
+        </div>
       </CardContent>
     </Card>
   );
