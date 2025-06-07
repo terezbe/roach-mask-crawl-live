@@ -25,8 +25,8 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [isScanning, setIsScanning] = useState(false);
   const [customRTMPUrl, setCustomRTMPUrl] = useState('rtmp://localhost:1935/live/stream1');
-  const [bridgeUrl, setBridgeUrl] = useState('ws://localhost:8080/ndi');
-  const [touchDesignerUrl, setTouchDesignerUrl] = useState('ws://localhost:8080');
+  const [bridgeUrl, setBridgeUrl] = useState('ws://localhost:8081/ndi'); // Changed port to 8081
+  const [touchDesignerUrl, setTouchDesignerUrl] = useState('ws://localhost:8081'); // Changed port to 8081
   const [connectionErrors, setConnectionErrors] = useState<string[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -86,7 +86,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       ws.onerror = (error) => {
         clearTimeout(timeout);
         console.error('Bridge connection error:', error);
-        setConnectionErrors(prev => [...prev, `Bridge connection failed. Check if ndi-bridge-server.js is running on port 8080`]);
+        setConnectionErrors(prev => [...prev, `Bridge connection failed. Check if ndi-bridge-server.js is running on port 8081`]);
         setIsScanning(false);
       };
       
@@ -123,7 +123,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       const connectionTimeout = setTimeout(() => {
         ws.close();
         setConnectionStatus('error');
-        setConnectionErrors(prev => [...prev, 'TouchDesigner connection timeout. Check WebSocket DAT: Active=On, Network Address=localhost, Port=8080']);
+        setConnectionErrors(prev => [...prev, 'TouchDesigner connection timeout. Check WebSocket DAT: Active=On, Network Address=localhost, Port=8081']);
       }, 10000);
       
       ws.onopen = () => {
@@ -167,7 +167,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
         clearTimeout(connectionTimeout);
         console.error('TouchDesigner WebSocket error:', error);
         setConnectionStatus('error');
-        setConnectionErrors(prev => [...prev, `TouchDesigner connection failed. Verify WebSocket DAT: Active=On, Network Address=localhost, Port=8080 (NOT ws://localhost:8080)`]);
+        setConnectionErrors(prev => [...prev, `TouchDesigner connection failed. Verify WebSocket DAT: Active=On, Network Address=localhost, Port=8081 (NOT ws://localhost:8081)`]);
       };
       
       ws.onclose = () => {
@@ -383,11 +383,11 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
           <Input
             value={touchDesignerUrl}
             onChange={(e) => setTouchDesignerUrl(e.target.value)}
-            placeholder="ws://localhost:8080"
+            placeholder="ws://localhost:8081"
             disabled={isConnected}
           />
           <div className="text-xs text-muted-foreground">
-            Configure WebSocket DAT: Network Address=localhost, Port=8080, Active=On
+            Configure WebSocket DAT: Network Address=localhost, Port=8081, Active=On
           </div>
         </div>
 
@@ -397,7 +397,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
           <Input
             value={bridgeUrl}
             onChange={(e) => setBridgeUrl(e.target.value)}
-            placeholder="ws://localhost:8080/ndi"
+            placeholder="ws://localhost:8081/ndi"
             disabled={isConnected}
           />
           <div className="text-xs text-muted-foreground">

@@ -1,4 +1,3 @@
-
 # Cockroach Avoidance Simulation
 
 A real-time 2D simulation where cartoon cockroaches avoid white pixels from a live NDI/RTMP stream sent from TouchDesigner. Built for local development and deployment.
@@ -54,7 +53,7 @@ node ndi-bridge-server.js
 npx nodemon ndi-bridge-server.js
 ```
 
-The bridge server will run on `ws://localhost:8080/ndi`
+The bridge server will run on `ws://localhost:8081/ndi`
 
 #### 3. Configure TouchDesigner
 
@@ -65,7 +64,7 @@ Based on your TouchDesigner setup, use these **EXACT** settings:
 **WebSocket DAT Configuration:**
 - **Active**: `On`
 - **Network Address**: `localhost` (NOT `localhost/ndi`)
-- **Network Port**: `8080` (This is the port, NOT part of the URL)
+- **Network Port**: `8081` (Changed from 8080 to avoid conflict with frontend)
 - **Connection Timeout**: `5000`
 
 **NDI Out TOP Configuration:**
@@ -144,16 +143,17 @@ def onPulse(dat):
 # WebSocket DAT Parameters (set these in the TouchDesigner interface):
 # - Active: On
 # - Network Address: localhost
-# - Network Port: 8080
+# - Network Port: 8081
 # - Auto Reconnect: On
 ```
 
 **⚠️ Common TouchDesigner Issues & Solutions:**
 
 1. **"Connection timeout" errors:**
-   - Make sure the simulation is running first (`npm run dev`)
-   - Check that port 8080 is not blocked by firewall
-   - Verify WebSocket DAT settings: Active=On, Network Address=localhost, Port=8080
+   - Make sure the simulation is running first (`npm run dev` on port 8080)
+   - Make sure the bridge server is running (`node ndi-bridge-server.js` on port 8081)
+   - Check that port 8081 is not blocked by firewall
+   - Verify WebSocket DAT settings: Active=On, Network Address=localhost, Port=8081
 
 2. **"Frame data not sending" errors:**
    - Change `op('mask_top')` to your actual TOP operator name
@@ -162,8 +162,8 @@ def onPulse(dat):
 
 3. **"WebSocket won't connect" errors:**
    - Try restarting TouchDesigner
-   - Check Windows firewall settings for port 8080
-   - Make sure no other applications are using port 8080
+   - Check Windows firewall settings for port 8081
+   - Make sure no other applications are using port 8081
 
 **Option B: NDI Stream (Advanced)**
 
@@ -188,11 +188,11 @@ def onPulse(dat):
 1. Open the simulation at `http://localhost:8080`
 2. **For Direct TouchDesigner WebSocket:**
    - Select "TouchDesigner Direct (WebSocket)" from the sources dropdown
-   - Make sure TouchDesigner WebSocket URL is `ws://localhost:8080`
+   - Make sure TouchDesigner WebSocket URL is `ws://localhost:8081`
    - Click "Connect to Stream"
 
 3. **For NDI/RTMP via Bridge:**
-   - Make sure Bridge Server URL is `ws://localhost:8080/ndi`
+   - Make sure Bridge Server URL is `ws://localhost:8081/ndi`
    - Click "Scan for Sources"
    - Select your TouchDesigner stream from the dropdown
    - Click "Connect to Stream"
@@ -217,8 +217,8 @@ def onPulse(dat):
 - **Hide UI**: Run in full-screen mode with minimal controls
 
 ### Stream Settings
-- **TouchDesigner WebSocket URL**: Direct WebSocket endpoint (default: ws://localhost:8080)
-- **Bridge Server URL**: WebSocket endpoint for NDI/RTMP (default: ws://localhost:8080/ndi)
+- **TouchDesigner WebSocket URL**: Direct WebSocket endpoint (default: ws://localhost:8081)
+- **Bridge Server URL**: WebSocket endpoint for NDI/RTMP (default: ws://localhost:8081/ndi)
 - **NDI Sources**: Auto-discovered from bridge server
 - **Custom RTMP**: Add custom RTMP stream URLs
 - **Connection Status**: Real-time connection monitoring
@@ -263,7 +263,7 @@ package-bridge.json                # Bridge server dependencies
 
 **"Bridge server connection timeout"**
 - Ensure bridge server is running: `node ndi-bridge-server.js`
-- Check if port 8080 is available: `netstat -an | findstr :8080`
+- Check if port 8081 is available: `netstat -an | findstr :8081`
 - Try different port and update both bridge server and URLs
 - Check Windows firewall settings
 
@@ -271,10 +271,10 @@ package-bridge.json                # Bridge server dependencies
 - Verify WebSocket DAT configuration:
   - Active: On
   - Network Address: localhost (NOT localhost/ndi)
-  - Network Port: 8080 (number only, not in URL)
+  - Network Port: 8081 (number only, not in URL)
 - Restart TouchDesigner after changing settings
 - Check if simulation is running first
-- Try connecting to `ws://localhost:8080` in browser dev tools
+- Try connecting to `ws://localhost:8081` in browser dev tools
 
 **"No frame data received"**
 - Update the script: change `op('mask_top')` to your actual TOP name
@@ -301,20 +301,20 @@ package-bridge.json                # Bridge server dependencies
 - Test with mock data first (bridge server provides test patterns)
 
 ### Common Port Conflicts
-If port 8080 is in use:
+If port 8081 is in use:
 
 1. **Change Bridge Server Port:**
    ```javascript
    // In ndi-bridge-server.js, change:
-   const PORT = process.env.PORT || 8081; // Use 8081 instead
+   const PORT = process.env.PORT || 8082; // Use 8082 instead
    ```
 
 2. **Update TouchDesigner:**
-   - WebSocket DAT Network Port: 8081
+   - WebSocket DAT Network Port: 8082
 
 3. **Update Simulation URLs:**
-   - TouchDesigner WebSocket URL: `ws://localhost:8081`
-   - Bridge Server URL: `ws://localhost:8081/ndi`
+   - TouchDesigner WebSocket URL: `ws://localhost:8082`
+   - Bridge Server URL: `ws://localhost:8082/ndi`
 
 ## 📱 Deployment Options
 

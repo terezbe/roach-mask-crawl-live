@@ -1,4 +1,3 @@
-
 const WebSocket = require('ws');
 const http = require('http');
 const fs = require('fs');
@@ -193,7 +192,7 @@ function createMockMask(width, height, centerX, centerY, radius) {
   return canvas;
 }
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8081; // Changed from 8080 to 8081
 server.listen(PORT, () => {
   console.log(`NDI Bridge Server running on port ${PORT}`);
   console.log(`WebSocket endpoint: ws://localhost:${PORT}/ndi`);
