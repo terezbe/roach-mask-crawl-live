@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { CockroachAgent, SimulationConfig, Vector2 } from '../types/simulation';
 
@@ -9,10 +8,12 @@ interface SimulationCanvasProps {
   config: SimulationConfig;
   isRunning: boolean;
   onFpsUpdate: (fps: number) => void;
+  fullScreen: boolean;
+  darkMode: boolean;
 }
 
 const SimulationCanvas = forwardRef<HTMLCanvasElement, SimulationCanvasProps>(
-  ({ agents, setAgents, maskData, config, isRunning, onFpsUpdate }, ref) => {
+  ({ agents, setAgents, maskData, config, isRunning, onFpsUpdate, fullScreen, darkMode }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const animationRef = useRef<number>();
     const lastTimeRef = useRef<number>(0);
@@ -153,20 +154,25 @@ const SimulationCanvas = forwardRef<HTMLCanvasElement, SimulationCanvasProps>(
       const wiggle = Math.sin(agent.wigglePhase) * 0.1;
       ctx.rotate(wiggle);
       
+      // Color based on mode - black for fullscreen/darkMode, brown for normal
+      const bodyColor = darkMode ? '#1a1a1a' : '#8B4513';
+      const headColor = darkMode ? '#0a0a0a' : '#654321';
+      const legColor = darkMode ? '#333' : '#333';
+      
       // Draw cockroach body (simple ellipse)
-      ctx.fillStyle = '#8B4513';
+      ctx.fillStyle = bodyColor;
       ctx.beginPath();
       ctx.ellipse(0, 0, agent.size, agent.size * 0.6, 0, 0, Math.PI * 2);
       ctx.fill();
       
       // Draw head
-      ctx.fillStyle = '#654321';
+      ctx.fillStyle = headColor;
       ctx.beginPath();
       ctx.ellipse(agent.size * 0.7, 0, agent.size * 0.4, agent.size * 0.3, 0, 0, Math.PI * 2);
       ctx.fill();
       
       // Draw antennae
-      ctx.strokeStyle = '#333';
+      ctx.strokeStyle = legColor;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(agent.size * 0.9, -agent.size * 0.2);
@@ -220,8 +226,8 @@ const SimulationCanvas = forwardRef<HTMLCanvasElement, SimulationCanvasProps>(
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Clear canvas
-      ctx.fillStyle = '#1e293b';
+      // Clear canvas with background color from config
+      ctx.fillStyle = config.backgroundColor || (darkMode ? '#ffffff' : '#1e293b');
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Draw mask overlay if enabled
@@ -255,9 +261,14 @@ const SimulationCanvas = forwardRef<HTMLCanvasElement, SimulationCanvasProps>(
       const canvas = canvasRef.current;
       if (!canvas) return;
 
-      // Set canvas size
-      canvas.width = 1200;
-      canvas.height = 800;
+      // Set canvas size - full screen or fixed size
+      if (fullScreen) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      } else {
+        canvas.width = 1200;
+        canvas.height = 800;
+      }
 
       // Start animation loop
       animationRef.current = requestAnimationFrame(animate);
@@ -267,13 +278,13 @@ const SimulationCanvas = forwardRef<HTMLCanvasElement, SimulationCanvasProps>(
           cancelAnimationFrame(animationRef.current);
         }
       };
-    }, [isRunning, agents, maskData, config]);
+    }, [isRunning, agents, maskData, config, fullScreen, darkMode]);
 
     return (
       <canvas
         ref={canvasRef}
-        className="w-full h-auto border border-border/20 rounded-lg bg-slate-800"
-        style={{ maxWidth: '100%', height: 'auto' }}
+        className={fullScreen ? "fixed inset-0 z-0" : "w-full h-auto border border-border/20 rounded-lg"}
+        style={fullScreen ? { width: '100vw', height: '100vh' } : { maxWidth: '100%', height: 'auto' }}
       />
     );
   }

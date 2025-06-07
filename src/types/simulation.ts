@@ -7,6 +7,8 @@ export interface SimulationConfig {
   maxSpeed: number;
   maxForce: number;
   bounceForce: number;
+  cockroachSize: number;
+  backgroundColor: string;
 }
 
 export interface CockroachAgent {

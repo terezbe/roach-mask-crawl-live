@@ -28,9 +28,17 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
   const [bridgeUrl, setBridgeUrl] = useState('ws://localhost:8080/ndi');
   const [touchDesignerUrl, setTouchDesignerUrl] = useState('ws://localhost:8080');
   const [connectionErrors, setConnectionErrors] = useState<string[]>([]);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clear any existing timeouts
+  const clearReconnectTimeout = () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+  };
 
   // Connect to bridge server and scan for sources
   const scanForSources = async () => {
@@ -94,17 +102,32 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     }
   };
 
-  // Connect directly to TouchDesigner WebSocket
+  // Connect directly to TouchDesigner WebSocket with better error handling
   const connectToTouchDesigner = () => {
     setConnectionStatus('connecting');
     setConnectionErrors([]);
+    clearReconnectTimeout();
+    
     console.log('Connecting directly to TouchDesigner WebSocket:', touchDesignerUrl);
     
     try {
+      // Close existing connection
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      
       const ws = new WebSocket(touchDesignerUrl);
       wsRef.current = ws;
       
+      // Connection timeout
+      const connectionTimeout = setTimeout(() => {
+        ws.close();
+        setConnectionStatus('error');
+        setConnectionErrors(prev => [...prev, 'TouchDesigner connection timeout. Check WebSocket DAT: Active=On, Network Address=localhost, Port=8080']);
+      }, 10000);
+      
       ws.onopen = () => {
+        clearTimeout(connectionTimeout);
         console.log('Connected to TouchDesigner WebSocket');
         setConnectionStatus('connected');
         setIsConnected(true);
@@ -112,6 +135,15 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
         
         // Request initial frame
         ws.send(JSON.stringify({ type: 'request_frame' }));
+        
+        // Set up periodic frame requests
+        const frameInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'request_frame' }));
+          } else {
+            clearInterval(frameInterval);
+          }
+        }, 1000 / 30); // 30 FPS
       };
       
       ws.onmessage = (event) => {
@@ -122,27 +154,41 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
             processFrameData(data.imageData, data.width, data.height);
           }
         } catch (error) {
-          console.error('Error processing TouchDesigner message:', error);
-          setConnectionErrors(prev => [...prev, 'Error processing frame data from TouchDesigner']);
+          // Try to handle raw image data
+          if (typeof event.data === 'string' && event.data.startsWith('data:image')) {
+            processDirectImageData(event.data);
+          } else {
+            console.error('Error processing TouchDesigner message:', error);
+          }
         }
       };
       
       ws.onerror = (error) => {
+        clearTimeout(connectionTimeout);
         console.error('TouchDesigner WebSocket error:', error);
         setConnectionStatus('error');
-        setConnectionErrors(prev => [...prev, `TouchDesigner connection failed. Check WebSocket DAT settings: Active=On, Port=8080, Network Address=localhost`]);
+        setConnectionErrors(prev => [...prev, `TouchDesigner connection failed. Verify WebSocket DAT: Active=On, Network Address=localhost, Port=8080 (NOT ws://localhost:8080)`]);
       };
       
       ws.onclose = () => {
+        clearTimeout(connectionTimeout);
         console.log('TouchDesigner connection closed');
         setIsConnected(false);
         setConnectionStatus('disconnected');
+        
+        // Auto-reconnect after 3 seconds if it was an unexpected closure
+        if (connectionStatus === 'connected') {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            console.log('Attempting to reconnect to TouchDesigner...');
+            connectToTouchDesigner();
+          }, 3000);
+        }
       };
       
     } catch (error) {
       console.error('Failed to connect to TouchDesigner:', error);
       setConnectionStatus('error');
-      setConnectionErrors(prev => [...prev, 'Failed to connect to TouchDesigner WebSocket']);
+      setConnectionErrors(prev => [...prev, 'Failed to create TouchDesigner WebSocket connection']);
     }
   };
 
@@ -238,7 +284,30 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     img.src = `data:image/jpeg;base64,${imageData}`;
   };
 
+  // Process direct image data
+  const processDirectImageData = (dataUrl: string) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      // Extract mask data
+      const maskData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      onMaskUpdate(maskData);
+    };
+    img.src = dataUrl;
+  };
+
   const disconnectFromSource = () => {
+    clearReconnectTimeout();
+    
     if (wsRef.current) {
       wsRef.current.send(JSON.stringify({ type: 'stop_stream' }));
       wsRef.current.close();
@@ -263,6 +332,10 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
   // Auto-scan on component mount
   useEffect(() => {
     scanForSources();
+    
+    return () => {
+      clearReconnectTimeout();
+    };
   }, []);
 
   return (

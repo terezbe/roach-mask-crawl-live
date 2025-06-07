@@ -30,7 +30,9 @@ const CockroachSimulation = () => {
     showMaskOverlay: false,
     maxSpeed: 2,
     maxForce: 0.1,
-    bounceForce: 0.8
+    bounceForce: 0.8,
+    cockroachSize: 12,
+    backgroundColor: '#ffffff'
   });
 
   const [config, setConfig] = useState<SimulationConfig>(loadSavedConfig);
@@ -75,7 +77,7 @@ const CockroachSimulation = () => {
     }
   }, [autoStart]);
 
-  // Initialize cockroaches when component mounts or count changes
+  // Initialize cockroaches when component mounts or count/size changes
   useEffect(() => {
     if (canvasRef.current) {
       const canvas = canvasRef.current;
@@ -90,13 +92,13 @@ const CockroachSimulation = () => {
           vy: (Math.random() - 0.5) * 2,
           angle: Math.random() * Math.PI * 2,
           wigglePhase: Math.random() * Math.PI * 2,
-          size: 12 + Math.random() * 8
+          size: config.cockroachSize + Math.random() * (config.cockroachSize * 0.3)
         });
       }
       
       setAgents(newAgents);
     }
-  }, [config.cockroachCount]);
+  }, [config.cockroachCount, config.cockroachSize]);
 
   const handleConfigChange = (newConfig: Partial<SimulationConfig>) => {
     setConfig(prev => ({ ...prev, ...newConfig }));
@@ -132,8 +134,8 @@ const CockroachSimulation = () => {
           </div>
         </div>
 
-        {/* Full screen simulation with white background */}
-        <div className="w-full h-full bg-white">
+        {/* Full screen simulation */}
+        <div className="w-full h-full" style={{ backgroundColor: config.backgroundColor || '#ffffff' }}>
           <SimulationCanvas
             ref={canvasRef}
             agents={agents}
