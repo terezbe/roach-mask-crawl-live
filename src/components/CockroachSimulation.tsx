@@ -1,6 +1,8 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import ConfigPanel from './ConfigPanel';
 import SimulationCanvas from './SimulationCanvas';
 import StreamHandler from './StreamHandler';
@@ -8,7 +10,21 @@ import { SimulationConfig, CockroachAgent } from '../types/simulation';
 
 const CockroachSimulation = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [config, setConfig] = useState<SimulationConfig>({
+  
+  // Load saved config from localStorage
+  const loadSavedConfig = (): SimulationConfig => {
+    try {
+      const saved = localStorage.getItem('cockroach-simulation-config');
+      if (saved) {
+        return { ...getDefaultConfig(), ...JSON.parse(saved) };
+      }
+    } catch (error) {
+      console.error('Error loading saved config:', error);
+    }
+    return getDefaultConfig();
+  };
+
+  const getDefaultConfig = (): SimulationConfig => ({
     cockroachCount: 100,
     avoidanceStrength: 2.5,
     wanderAmount: 0.3,
@@ -17,11 +33,47 @@ const CockroachSimulation = () => {
     maxForce: 0.1,
     bounceForce: 0.8
   });
-  
+
+  const [config, setConfig] = useState<SimulationConfig>(loadSavedConfig);
   const [agents, setAgents] = useState<CockroachAgent[]>([]);
   const [maskData, setMaskData] = useState<ImageData | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [fps, setFps] = useState(0);
+  const [autoStart, setAutoStart] = useState(() => {
+    const saved = localStorage.getItem('cockroach-simulation-autostart');
+    return saved === 'true';
+  });
+  const [hideUI, setHideUI] = useState(() => {
+    const saved = localStorage.getItem('cockroach-simulation-hideui');
+    return saved === 'true';
+  });
+
+  // Save config to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('cockroach-simulation-config', JSON.stringify(config));
+    } catch (error) {
+      console.error('Error saving config:', error);
+    }
+  }, [config]);
+
+  // Save auto-start preference
+  useEffect(() => {
+    localStorage.setItem('cockroach-simulation-autostart', autoStart.toString());
+  }, [autoStart]);
+
+  // Save hide UI preference
+  useEffect(() => {
+    localStorage.setItem('cockroach-simulation-hideui', hideUI.toString());
+  }, [hideUI]);
+
+  // Auto-start simulation if enabled
+  useEffect(() => {
+    if (autoStart && !isRunning) {
+      console.log('Auto-starting simulation...');
+      setIsRunning(true);
+    }
+  }, [autoStart]);
 
   // Initialize cockroaches when component mounts or count changes
   useEffect(() => {
@@ -54,16 +106,83 @@ const CockroachSimulation = () => {
     setIsRunning(!isRunning);
   };
 
+  const resetToDefaults = () => {
+    setConfig(getDefaultConfig());
+    localStorage.removeItem('cockroach-simulation-config');
+  };
+
+  if (hideUI) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
+        <div className="max-w-7xl mx-auto">
+          {/* Minimal controls overlay */}
+          <div className="fixed top-4 right-4 z-10 bg-card/90 backdrop-blur-sm rounded-lg p-4 border border-border/50">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="show-ui">Show UI</Label>
+                <Switch
+                  id="show-ui"
+                  checked={!hideUI}
+                  onCheckedChange={(checked) => setHideUI(!checked)}
+                />
+              </div>
+              <div className="text-sm text-muted-foreground">
+                FPS: {fps.toFixed(1)}
+              </div>
+            </div>
+          </div>
+
+          {/* Full screen simulation */}
+          <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50">
+            <SimulationCanvas
+              ref={canvasRef}
+              agents={agents}
+              setAgents={setAgents}
+              maskData={maskData}
+              config={config}
+              isRunning={isRunning}
+              onFpsUpdate={setFps}
+            />
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-4xl font-bold text-foreground mb-2">
-            Cockroach Avoidance Simulation
-          </h1>
-          <p className="text-muted-foreground">
-            Real-time 2D simulation with NDI mask stream integration
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold text-foreground mb-2">
+                Cockroach Avoidance Simulation
+              </h1>
+              <p className="text-muted-foreground">
+                Real-time 2D simulation with NDI/RTMP stream integration
+              </p>
+            </div>
+            
+            {/* Auto-start and UI controls */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="auto-start">Auto-start</Label>
+                <Switch
+                  id="auto-start"
+                  checked={autoStart}
+                  onCheckedChange={setAutoStart}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="hide-ui">Hide UI</Label>
+                <Switch
+                  id="hide-ui"
+                  checked={hideUI}
+                  onCheckedChange={setHideUI}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -75,6 +194,7 @@ const CockroachSimulation = () => {
               isRunning={isRunning}
               onToggleSimulation={toggleSimulation}
               fps={fps}
+              onResetDefaults={resetToDefaults}
             />
             <div className="mt-4">
               <StreamHandler

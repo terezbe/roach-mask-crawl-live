@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,7 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Play, Pause, Bug } from 'lucide-react';
+import { Play, Pause, Bug, RotateCcw } from 'lucide-react';
 import { SimulationConfig } from '../types/simulation';
 
 interface ConfigPanelProps {
@@ -15,6 +14,7 @@ interface ConfigPanelProps {
   isRunning: boolean;
   onToggleSimulation: () => void;
   fps: number;
+  onResetDefaults?: () => void;
 }
 
 const ConfigPanel: React.FC<ConfigPanelProps> = ({
@@ -22,7 +22,8 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
   onConfigChange,
   isRunning,
   onToggleSimulation,
-  fps
+  fps,
+  onResetDefaults
 }) => {
   return (
     <Card className="bg-card/80 backdrop-blur-sm border-border/50">
@@ -51,6 +52,18 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
             </>
           )}
         </Button>
+
+        {/* Reset to Defaults */}
+        {onResetDefaults && (
+          <Button 
+            onClick={onResetDefaults}
+            variant="outline"
+            className="w-full"
+          >
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Reset to Defaults
+          </Button>
+        )}
 
         {/* FPS Counter */}
         <div className="flex justify-between items-center">
