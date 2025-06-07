@@ -35,7 +35,7 @@ npm run dev
 
 The app will be available at `http://localhost:8080`
 
-#### 2. Set Up Bridge Server (Required for Live Streams)
+#### 2. Set Up Bridge Server (Required for NDI/RTMP Streams)
 
 The project includes a Node.js bridge server that converts NDI/RTMP streams to WebSocket for browser consumption.
 
@@ -58,32 +58,23 @@ The bridge server will run on `ws://localhost:8080/ndi`
 
 #### 3. Configure TouchDesigner
 
-**Option A: NDI Stream (Recommended)**
+**🔧 IMPORTANT WebSocket Configuration:**
 
-1. **Add NDI Out TOP**:
-   - Set NDI Name to "TouchDesigner" or "TD_Mask"
-   - Connect your mask/video output to NDI Out
-   - Make sure "Active" is enabled
+Based on your TouchDesigner setup, use these **EXACT** settings:
 
-2. **Verify NDI Stream**:
-   - Use NDI Studio Monitor to verify your stream is broadcasting
-   - Note the exact NDI source name
+**WebSocket DAT Configuration:**
+- **Active**: `On`
+- **Network Address**: `localhost` (NOT `localhost/ndi`)
+- **Network Port**: `8080` (This is the port, NOT part of the URL)
+- **Connection Timeout**: `5000`
 
-**Option B: RTMP Stream (Alternative)**
+**NDI Out TOP Configuration:**
+- **Active**: `On`
+- **Source Name**: `TouchDesigner` (or any name you prefer)
+- **FPS**: `60`
+- **Output Pixel Format**: `8-bit`
 
-1. **Add Video Stream Out TOP**:
-   - Set Protocol to "RTMP"
-   - Set URL to `rtmp://localhost:1935/live/stream1`
-   - Set Stream Key if needed
-   - Connect your mask/video output
-
-2. **Install RTMP Server** (if you don't have one):
-   ```sh
-   # Using nginx-rtmp (recommended)
-   # Or use OBS Studio with RTMP output
-   ```
-
-**Option C: WebSocket Direct (Simplest)**
+**Option A: Direct WebSocket (Recommended - Simplest)**
 
 Add this script to a WebSocket DAT in TouchDesigner:
 
@@ -93,6 +84,8 @@ Add this script to a WebSocket DAT in TouchDesigner:
 
 def onConnect(dat):
     print("WebSocket connected to simulation")
+    # Send initial connection message
+    dat.sendText('{"type": "connected", "source": "TouchDesigner"}')
 
 def onDisconnect(dat):
     print("WebSocket disconnected from simulation")
@@ -105,69 +98,103 @@ def onReceiveText(dat, text):
         if msg.get('type') == 'request_frame':
             # Send current frame data
             sendCurrentFrame(dat)
-    except:
-        pass
+    except Exception as e:
+        print(f"Error parsing message: {e}")
 
 def sendCurrentFrame(dat):
-    # Get your mask TOP (replace 'null1' with your TOP name)
-    maskTop = op('null1')  # Your mask/video source TOP
+    # Get your mask TOP (replace 'mask_top' with your TOP name)
+    maskTop = op('mask_top')  # CHANGE THIS to your mask TOP name
     
     if maskTop and maskTop.width > 0:
-        # Convert TOP to base64 image
-        import base64
-        
-        # Get pixel data (this is a simplified example)
-        # You'll need to implement proper TOP to image conversion
-        
-        frameData = {
-            'type': 'frame',
-            'timestamp': absTime.frame,
-            'width': maskTop.width,
-            'height': maskTop.height,
-            'imageData': getBase64FromTOP(maskTop)  # Implement this function
-        }
-        
-        dat.sendText(json.dumps(frameData))
+        try:
+            # Convert TOP to base64 image
+            import base64
+            import tempfile
+            import os
+            
+            # Save TOP to temp file and convert to base64
+            temp_path = tempfile.mktemp(suffix='.jpg')
+            maskTop.save(temp_path, quality=0.8)
+            
+            with open(temp_path, 'rb') as f:
+                data = f.read()
+                b64_data = base64.b64encode(data).decode('utf-8')
+            
+            os.unlink(temp_path)
+            
+            frameData = {
+                'type': 'frame',
+                'timestamp': absTime.frame,
+                'width': maskTop.width,
+                'height': maskTop.height,
+                'imageData': b64_data
+            }
+            
+            dat.sendText(json.dumps(frameData))
+            
+        except Exception as e:
+            print(f"Error sending frame: {e}")
 
-def getBase64FromTOP(top):
-    # Implement TOP to base64 conversion
-    # This depends on your TouchDesigner version and setup
-    # Example for TouchDesigner 2022+:
-    
-    try:
-        # Save TOP to temp file and convert to base64
-        import tempfile
-        import os
-        
-        temp_path = tempfile.mktemp(suffix='.jpg')
-        top.save(temp_path, quality=0.8)
-        
-        with open(temp_path, 'rb') as f:
-            data = f.read()
-            b64_data = base64.b64encode(data).decode('utf-8')
-        
-        os.unlink(temp_path)
-        return b64_data
-    except:
-        return ""
+# Optional: Auto-send frames at regular intervals
+def onPulse(dat):
+    # Uncomment the line below to auto-send frames every pulse
+    # sendCurrentFrame(dat)
+    pass
 
-# WebSocket DAT Parameters:
+# WebSocket DAT Parameters (set these in the TouchDesigner interface):
 # - Active: On
-# - Mode: Client
-# - Server Address: localhost
-# - Port: 8080
-# - Endpoint: /ndi
+# - Network Address: localhost
+# - Network Port: 8080
 # - Auto Reconnect: On
 ```
+
+**⚠️ Common TouchDesigner Issues & Solutions:**
+
+1. **"Connection timeout" errors:**
+   - Make sure the simulation is running first (`npm run dev`)
+   - Check that port 8080 is not blocked by firewall
+   - Verify WebSocket DAT settings: Active=On, Network Address=localhost, Port=8080
+
+2. **"Frame data not sending" errors:**
+   - Change `op('mask_top')` to your actual TOP operator name
+   - Make sure your mask TOP has content (check if width > 0)
+   - Verify the TOP is actively updating
+
+3. **"WebSocket won't connect" errors:**
+   - Try restarting TouchDesigner
+   - Check Windows firewall settings for port 8080
+   - Make sure no other applications are using port 8080
+
+**Option B: NDI Stream (Advanced)**
+
+1. **Add NDI Out TOP**:
+   - Set NDI Name to "TouchDesigner" or "TD_Mask"
+   - Connect your mask/video output to NDI Out
+   - Make sure "Active" is enabled
+
+2. **Verify NDI Stream**:
+   - Use NDI Studio Monitor to verify your stream is broadcasting
+   - Note the exact NDI source name
+
+**Option C: RTMP Stream (Alternative)**
+
+1. **Add Video Stream Out TOP**:
+   - Set Protocol to "RTMP"
+   - Set URL to `rtmp://localhost:1935/live/stream1`
+   - Connect your mask/video output
 
 #### 4. Configure the Simulation
 
 1. Open the simulation at `http://localhost:8080`
-2. In the Stream Handler panel:
+2. **For Direct TouchDesigner WebSocket:**
+   - Select "TouchDesigner Direct (WebSocket)" from the sources dropdown
+   - Make sure TouchDesigner WebSocket URL is `ws://localhost:8080`
+   - Click "Connect to Stream"
+
+3. **For NDI/RTMP via Bridge:**
    - Make sure Bridge Server URL is `ws://localhost:8080/ndi`
    - Click "Scan for Sources"
    - Select your TouchDesigner stream from the dropdown
-   - Or add a custom RTMP URL
    - Click "Connect to Stream"
 
 #### 5. Test the Setup
@@ -190,7 +217,8 @@ def getBase64FromTOP(top):
 - **Hide UI**: Run in full-screen mode with minimal controls
 
 ### Stream Settings
-- **Bridge Server URL**: WebSocket endpoint (default: ws://localhost:8080/ndi)
+- **TouchDesigner WebSocket URL**: Direct WebSocket endpoint (default: ws://localhost:8080)
+- **Bridge Server URL**: WebSocket endpoint for NDI/RTMP (default: ws://localhost:8080/ndi)
 - **NDI Sources**: Auto-discovered from bridge server
 - **Custom RTMP**: Add custom RTMP stream URLs
 - **Connection Status**: Real-time connection monitoring
@@ -201,6 +229,13 @@ All configuration changes are automatically saved to localStorage and restored o
 - Auto-start preference
 - UI visibility settings
 - Custom RTMP URLs
+
+### Full-Screen Mode
+When "Hide UI" is enabled:
+- Simulation runs full-screen with white background
+- Cockroaches appear black for better contrast
+- Show UI toggle appears only when hovering top-right corner
+- Perfect for installations or presentations
 
 ## 🛠️ Development
 
@@ -222,51 +257,38 @@ ndi-bridge-server.js               # WebSocket bridge for streams
 package-bridge.json                # Bridge server dependencies
 ```
 
-### Bridge Server Features
-- **NDI Support**: Connects to NDI sources on the network
-- **RTMP Support**: Receives RTMP streams and converts to WebSocket
-- **Mock Data**: Provides test patterns when no real stream is available
-- **Multi-client**: Supports multiple browser connections
-- **CORS Enabled**: Works with local development
-
-### Technologies Used
-- **React 18** - UI framework
-- **TypeScript** - Type safety
-- **Vite** - Build tool and dev server
-- **Tailwind CSS** - Styling
-- **shadcn/ui** - UI components
-- **Canvas API** - 2D graphics rendering
-- **WebSocket** - Real-time stream communication
-- **Node.js** - Bridge server runtime
-
 ## 🎯 Troubleshooting
 
-### Common Issues
+### Connection Issues
 
-**"No sources found" or connection fails**
+**"Bridge server connection timeout"**
 - Ensure bridge server is running: `node ndi-bridge-server.js`
-- Check bridge server URL in UI: `ws://localhost:8080/ndi`
-- Verify TouchDesigner is running and broadcasting
-- Test WebSocket connection manually
+- Check if port 8080 is available: `netstat -an | findstr :8080`
+- Try different port and update both bridge server and URLs
+- Check Windows firewall settings
 
-**Bridge server won't start**
-- Install dependencies: `npm install ws canvas`
-- Check port 8080 is available
-- Try a different port and update the bridge URL
+**"TouchDesigner WebSocket connection failed"**
+- Verify WebSocket DAT configuration:
+  - Active: On
+  - Network Address: localhost (NOT localhost/ndi)
+  - Network Port: 8080 (number only, not in URL)
+- Restart TouchDesigner after changing settings
+- Check if simulation is running first
+- Try connecting to `ws://localhost:8080` in browser dev tools
 
-**TouchDesigner not sending frames**
-- Verify NDI Out TOP is active
-- Check NDI source name matches
-- Use NDI Studio Monitor to verify stream
-- For WebSocket DAT, ensure Active = On
+**"No frame data received"**
+- Update the script: change `op('mask_top')` to your actual TOP name
+- Check if your TOP has content: width and height > 0
+- Verify TOP is actively updating (check in TouchDesigner)
+- Add print statements in the TouchDesigner script for debugging
 
-**Poor Performance**
+### Performance Issues
 - Reduce cockroach count (< 150)
 - Lower browser zoom level
 - Close other browser tabs
 - Enable hardware acceleration
 
-**Cockroaches not avoiding mask**
+### Avoidance Not Working
 - Toggle "Show Mask Overlay" to verify mask data
 - Increase "Avoidance Strength"
 - Check mask has sufficient white/black contrast
@@ -278,6 +300,22 @@ package-bridge.json                # Bridge server dependencies
 - Use bridge server console output for stream debugging
 - Test with mock data first (bridge server provides test patterns)
 
+### Common Port Conflicts
+If port 8080 is in use:
+
+1. **Change Bridge Server Port:**
+   ```javascript
+   // In ndi-bridge-server.js, change:
+   const PORT = process.env.PORT || 8081; // Use 8081 instead
+   ```
+
+2. **Update TouchDesigner:**
+   - WebSocket DAT Network Port: 8081
+
+3. **Update Simulation URLs:**
+   - TouchDesigner WebSocket URL: `ws://localhost:8081`
+   - Bridge Server URL: `ws://localhost:8081/ndi`
+
 ## 📱 Deployment Options
 
 ### Local Network Access
@@ -285,8 +323,10 @@ package-bridge.json                # Bridge server dependencies
 # Allow network access
 npm run dev -- --host 0.0.0.0
 
-# Bridge server for network
-# Update bridge server to bind to 0.0.0.0:8080
+# Bridge server for network (modify ndi-bridge-server.js)
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on all interfaces:${PORT}`);
+});
 
 # Access from other devices
 http://YOUR_IP_ADDRESS:8080
@@ -309,25 +349,6 @@ node ndi-bridge-server.js
 - Enable "Hide UI" for installation/kiosk mode
 - Settings persist across browser sessions
 - Use URL parameters for quick setup: `?autostart=true&hideui=true`
-
-## 🔧 Advanced Configuration
-
-### Custom Stream Sources
-Add your own stream sources by modifying the bridge server:
-
-```javascript
-// In ndi-bridge-server.js, update the sources array:
-const customSources = [
-  { name: 'Your Custom NDI', type: 'ndi', url: 'ndi://your-source' },
-  { name: 'Your RTMP Stream', type: 'rtmp', url: 'rtmp://your-server/live/stream' }
-];
-```
-
-### Integration with Other Software
-- **OBS Studio**: Use as RTMP source or NDI source
-- **Resolume**: Output NDI stream to simulation
-- **Max/MSP**: Similar WebSocket integration possible
-- **Processing/openFrameworks**: Custom bridge implementations
 
 ## 📞 Support
 

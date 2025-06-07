@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Video, VideoOff, Wifi, WifiOff, RefreshCw, Radio } from 'lucide-react';
+import { Video, VideoOff, Wifi, WifiOff, RefreshCw, Radio, AlertCircle } from 'lucide-react';
 
 interface StreamHandlerProps {
   onMaskUpdate: (maskData: ImageData | null) => void;
@@ -15,7 +14,7 @@ interface StreamHandlerProps {
 
 interface StreamSource {
   name: string;
-  type: 'ndi' | 'rtmp';
+  type: 'ndi' | 'rtmp' | 'websocket';
   url: string;
 }
 
@@ -27,6 +26,8 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
   const [isScanning, setIsScanning] = useState(false);
   const [customRTMPUrl, setCustomRTMPUrl] = useState('rtmp://localhost:1935/live/stream1');
   const [bridgeUrl, setBridgeUrl] = useState('ws://localhost:8080/ndi');
+  const [touchDesignerUrl, setTouchDesignerUrl] = useState('ws://localhost:8080');
+  const [connectionErrors, setConnectionErrors] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -34,6 +35,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
   // Connect to bridge server and scan for sources
   const scanForSources = async () => {
     setIsScanning(true);
+    setConnectionErrors([]);
     console.log('Connecting to NDI bridge server...');
     
     try {
@@ -42,12 +44,14 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       const timeout = setTimeout(() => {
         ws.close();
         setIsScanning(false);
+        setConnectionErrors(prev => [...prev, 'Bridge server connection timeout. Make sure ndi-bridge-server.js is running.']);
         console.error('Connection to bridge server timed out');
       }, 5000);
       
       ws.onopen = () => {
         clearTimeout(timeout);
         console.log('Connected to NDI bridge server');
+        setConnectionErrors([]);
         ws.send(JSON.stringify({ type: 'ping' }));
       };
       
@@ -57,17 +61,24 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
           
           if (data.type === 'sources_available') {
             console.log('Available sources:', data.sources);
-            setAvailableSources(data.sources);
+            // Add TouchDesigner direct WebSocket option
+            const sources = [
+              ...data.sources,
+              { name: 'TouchDesigner Direct (WebSocket)', type: 'websocket', url: touchDesignerUrl }
+            ];
+            setAvailableSources(sources);
             setIsScanning(false);
           }
         } catch (error) {
           console.error('Error parsing bridge message:', error);
+          setConnectionErrors(prev => [...prev, 'Error parsing bridge server response']);
         }
       };
       
       ws.onerror = (error) => {
         clearTimeout(timeout);
         console.error('Bridge connection error:', error);
+        setConnectionErrors(prev => [...prev, `Bridge connection failed. Check if ndi-bridge-server.js is running on port 8080`]);
         setIsScanning(false);
       };
       
@@ -78,18 +89,80 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       
     } catch (error) {
       console.error('Failed to connect to bridge server:', error);
+      setConnectionErrors(prev => [...prev, 'Failed to connect to bridge server']);
       setIsScanning(false);
+    }
+  };
+
+  // Connect directly to TouchDesigner WebSocket
+  const connectToTouchDesigner = () => {
+    setConnectionStatus('connecting');
+    setConnectionErrors([]);
+    console.log('Connecting directly to TouchDesigner WebSocket:', touchDesignerUrl);
+    
+    try {
+      const ws = new WebSocket(touchDesignerUrl);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        console.log('Connected to TouchDesigner WebSocket');
+        setConnectionStatus('connected');
+        setIsConnected(true);
+        setConnectionErrors([]);
+        
+        // Request initial frame
+        ws.send(JSON.stringify({ type: 'request_frame' }));
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'frame' && data.imageData) {
+            processFrameData(data.imageData, data.width, data.height);
+          }
+        } catch (error) {
+          console.error('Error processing TouchDesigner message:', error);
+          setConnectionErrors(prev => [...prev, 'Error processing frame data from TouchDesigner']);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error('TouchDesigner WebSocket error:', error);
+        setConnectionStatus('error');
+        setConnectionErrors(prev => [...prev, `TouchDesigner connection failed. Check WebSocket DAT settings: Active=On, Port=8080, Network Address=localhost`]);
+      };
+      
+      ws.onclose = () => {
+        console.log('TouchDesigner connection closed');
+        setIsConnected(false);
+        setConnectionStatus('disconnected');
+      };
+      
+    } catch (error) {
+      console.error('Failed to connect to TouchDesigner:', error);
+      setConnectionStatus('error');
+      setConnectionErrors(prev => [...prev, 'Failed to connect to TouchDesigner WebSocket']);
     }
   };
 
   // Connect to selected source
   const connectToSource = async () => {
     if (!selectedSource && !customRTMPUrl) {
-      console.error('No source selected');
+      setConnectionErrors(['No source selected']);
+      return;
+    }
+    
+    const source = availableSources.find(s => s.name === selectedSource);
+    
+    // If TouchDesigner direct connection is selected
+    if (source?.type === 'websocket') {
+      connectToTouchDesigner();
       return;
     }
     
     setConnectionStatus('connecting');
+    setConnectionErrors([]);
     console.log('Connecting to source:', selectedSource || customRTMPUrl);
     
     try {
@@ -100,9 +173,9 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
         console.log('Connected to bridge');
         setConnectionStatus('connected');
         setIsConnected(true);
+        setConnectionErrors([]);
         
         // Request stream
-        const source = availableSources.find(s => s.name === selectedSource);
         const streamType = source?.type || 'rtmp';
         const streamUrl = source?.url || customRTMPUrl;
         
@@ -128,6 +201,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       ws.onerror = (error) => {
         console.error('Stream WebSocket error:', error);
         setConnectionStatus('error');
+        setConnectionErrors(prev => [...prev, 'Bridge server stream connection failed']);
       };
       
       ws.onclose = () => {
@@ -139,6 +213,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     } catch (error) {
       console.error('Failed to connect to stream:', error);
       setConnectionStatus('error');
+      setConnectionErrors(prev => [...prev, 'Failed to connect to stream']);
     }
   };
 
@@ -217,6 +292,32 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
           </Badge>
         </div>
 
+        {/* Connection Errors */}
+        {connectionErrors.length > 0 && (
+          <div className="space-y-2">
+            {connectionErrors.map((error, index) => (
+              <div key={index} className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 p-2 rounded">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* TouchDesigner Direct WebSocket URL */}
+        <div className="space-y-2">
+          <Label>TouchDesigner WebSocket URL</Label>
+          <Input
+            value={touchDesignerUrl}
+            onChange={(e) => setTouchDesignerUrl(e.target.value)}
+            placeholder="ws://localhost:8080"
+            disabled={isConnected}
+          />
+          <div className="text-xs text-muted-foreground">
+            Configure WebSocket DAT: Network Address=localhost, Port=8080, Active=On
+          </div>
+        </div>
+
         {/* Bridge Server URL */}
         <div className="space-y-2">
           <Label>Bridge Server URL</Label>
@@ -226,6 +327,9 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
             placeholder="ws://localhost:8080/ndi"
             disabled={isConnected}
           />
+          <div className="text-xs text-muted-foreground">
+            Make sure ndi-bridge-server.js is running
+          </div>
         </div>
 
         {/* Scan for Sources */}
@@ -265,6 +369,8 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
                   <div className="flex items-center gap-2">
                     {source.type === 'ndi' ? (
                       <Video className="w-4 h-4" />
+                    ) : source.type === 'websocket' ? (
+                      <Wifi className="w-4 h-4" />
                     ) : (
                       <Radio className="w-4 h-4" />
                     )}
@@ -333,8 +439,10 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
           </div>
         )}
         
-        <div className="text-xs text-muted-foreground">
-          Found {availableSources.length} source(s). Bridge server: {bridgeUrl}
+        <div className="text-xs text-muted-foreground space-y-1">
+          <div>Found {availableSources.length} source(s)</div>
+          <div className="font-mono">Bridge: {bridgeUrl}</div>
+          <div className="font-mono">TouchDesigner: {touchDesignerUrl}</div>
         </div>
       </CardContent>
     </Card>

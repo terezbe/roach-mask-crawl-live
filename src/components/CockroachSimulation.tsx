@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -47,6 +46,7 @@ const CockroachSimulation = () => {
     const saved = localStorage.getItem('cockroach-simulation-hideui');
     return saved === 'true';
   });
+  const [showUIToggle, setShowUIToggle] = useState(false);
 
   // Save config to localStorage whenever it changes
   useEffect(() => {
@@ -113,37 +113,38 @@ const CockroachSimulation = () => {
 
   if (hideUI) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
-        <div className="max-w-7xl mx-auto">
-          {/* Minimal controls overlay */}
-          <div className="fixed top-4 right-4 z-10 bg-card/90 backdrop-blur-sm rounded-lg p-4 border border-border/50">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="show-ui">Show UI</Label>
-                <Switch
-                  id="show-ui"
-                  checked={!hideUI}
-                  onCheckedChange={(checked) => setHideUI(!checked)}
-                />
-              </div>
-              <div className="text-sm text-muted-foreground">
-                FPS: {fps.toFixed(1)}
-              </div>
+      <div className="fixed inset-0 bg-background overflow-hidden">
+        {/* Hover area for UI toggle - only visible on hover */}
+        <div 
+          className="fixed top-0 right-0 w-32 h-16 z-50 flex items-center justify-center"
+          onMouseEnter={() => setShowUIToggle(true)}
+          onMouseLeave={() => setShowUIToggle(false)}
+        >
+          <div className={`transition-opacity duration-300 ${showUIToggle ? 'opacity-100' : 'opacity-0'} bg-card/90 backdrop-blur-sm rounded-lg p-2 border border-border/50`}>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="show-ui" className="text-xs">Show UI</Label>
+              <Switch
+                id="show-ui"
+                checked={!hideUI}
+                onCheckedChange={(checked) => setHideUI(!checked)}
+              />
             </div>
           </div>
+        </div>
 
-          {/* Full screen simulation */}
-          <Card className="p-6 bg-card/50 backdrop-blur-sm border-border/50">
-            <SimulationCanvas
-              ref={canvasRef}
-              agents={agents}
-              setAgents={setAgents}
-              maskData={maskData}
-              config={config}
-              isRunning={isRunning}
-              onFpsUpdate={setFps}
-            />
-          </Card>
+        {/* Full screen simulation with white background */}
+        <div className="w-full h-full bg-white">
+          <SimulationCanvas
+            ref={canvasRef}
+            agents={agents}
+            setAgents={setAgents}
+            maskData={maskData}
+            config={config}
+            isRunning={isRunning}
+            onFpsUpdate={setFps}
+            fullScreen={true}
+            darkMode={true}
+          />
         </div>
       </div>
     );
@@ -215,6 +216,8 @@ const CockroachSimulation = () => {
                 config={config}
                 isRunning={isRunning}
                 onFpsUpdate={setFps}
+                fullScreen={false}
+                darkMode={false}
               />
             </Card>
           </div>
