@@ -3,10 +3,11 @@
   "name": "ndi-bridge-server",
   "version": "1.0.0",
   "description": "NDI to WebSocket bridge for cockroach simulation",
-  "main": "ndi-bridge-server.js",
+  "main": "ndi-bridge-server.cjs",
   "scripts": {
-    "start": "node ndi-bridge-server.js",
-    "dev": "nodemon ndi-bridge-server.js"
+    "start": "node ndi-bridge-server.cjs",
+    "dev": "nodemon ndi-bridge-server.cjs",
+    "test": "node -e \"console.log('Testing bridge server...'); require('./ndi-bridge-server.cjs')\""
   },
   "dependencies": {
     "ws": "^8.14.2",
@@ -14,5 +15,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
-  }
+  },
+  "keywords": ["ndi", "websocket", "bridge", "streaming"],
+  "author": "Cockroach Simulation Project",
+  "license": "MIT"
 }

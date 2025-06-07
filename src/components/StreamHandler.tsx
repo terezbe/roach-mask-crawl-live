@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Video, VideoOff, Wifi, WifiOff, RefreshCw, Radio, AlertCircle } from 'lucide-react';
+import { Video, VideoOff, Wifi, WifiOff, RefreshCw, Radio, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface StreamHandlerProps {
   onMaskUpdate: (maskData: ImageData | null) => void;
@@ -22,15 +22,17 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
   const [isConnected, setIsConnected] = useState(false);
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [availableSources, setAvailableSources] = useState<StreamSource[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'streaming' | 'error'>('disconnected');
   const [isScanning, setIsScanning] = useState(false);
   const [customRTMPUrl, setCustomRTMPUrl] = useState('rtmp://localhost:1935/live/stream1');
-  const [bridgeUrl, setBridgeUrl] = useState('ws://localhost:8081/ndi'); // Changed port to 8081
-  const [touchDesignerUrl, setTouchDesignerUrl] = useState('ws://localhost:8081'); // Changed port to 8081
+  const [bridgeUrl, setBridgeUrl] = useState('ws://localhost:8081/ndi');
+  const [touchDesignerUrl, setTouchDesignerUrl] = useState('ws://localhost:8081');
   const [connectionErrors, setConnectionErrors] = useState<string[]>([]);
+  const [streamStats, setStreamStats] = useState({ framesReceived: 0, lastFrameTime: 0, fps: 0 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fpsCounterRef = useRef({ count: 0, lastTime: Date.now() });
 
   // Clear any existing timeouts
   const clearReconnectTimeout = () => {
@@ -40,7 +42,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     }
   };
 
-  // Connect to bridge server and scan for sources
+  // Enhanced scan for sources with better error handling
   const scanForSources = async () => {
     setIsScanning(true);
     setConnectionErrors([]);
@@ -52,7 +54,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       const timeout = setTimeout(() => {
         ws.close();
         setIsScanning(false);
-        setConnectionErrors(prev => [...prev, 'Bridge server connection timeout. Make sure ndi-bridge-server.js is running.']);
+        setConnectionErrors(prev => [...prev, 'Bridge server connection timeout. Make sure "node ndi-bridge-server.cjs" is running on port 8081.']);
         console.error('Connection to bridge server timed out');
       }, 5000);
       
@@ -60,7 +62,8 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
         clearTimeout(timeout);
         console.log('Connected to NDI bridge server');
         setConnectionErrors([]);
-        ws.send(JSON.stringify({ type: 'ping' }));
+        // Request sources explicitly
+        ws.send(JSON.stringify({ type: 'request_sources' }));
       };
       
       ws.onmessage = (event) => {
@@ -71,28 +74,29 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
             console.log('Available sources:', data.sources);
             // Add TouchDesigner direct WebSocket option
             const sources = [
-              ...data.sources,
-              { name: 'TouchDesigner Direct (WebSocket)', type: 'websocket', url: touchDesignerUrl }
+              { name: 'TouchDesigner Direct (WebSocket)', type: 'websocket', url: touchDesignerUrl },
+              ...data.sources
             ];
             setAvailableSources(sources);
             setIsScanning(false);
+            ws.close(); // Close the scanning connection
           }
         } catch (error) {
           console.error('Error parsing bridge message:', error);
           setConnectionErrors(prev => [...prev, 'Error parsing bridge server response']);
+          setIsScanning(false);
         }
       };
       
       ws.onerror = (error) => {
         clearTimeout(timeout);
         console.error('Bridge connection error:', error);
-        setConnectionErrors(prev => [...prev, `Bridge connection failed. Check if ndi-bridge-server.js is running on port 8081`]);
+        setConnectionErrors(prev => [...prev, `Bridge connection failed. Check if "node ndi-bridge-server.cjs" is running on port 8081`]);
         setIsScanning(false);
       };
       
       ws.onclose = () => {
         clearTimeout(timeout);
-        ws.close();
       };
       
     } catch (error) {
@@ -192,7 +196,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     }
   };
 
-  // Connect to selected source
+  // Enhanced connect to source with better stream handling
   const connectToSource = async () => {
     if (!selectedSource && !customRTMPUrl) {
       setConnectionErrors(['No source selected']);
@@ -209,6 +213,9 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     
     setConnectionStatus('connecting');
     setConnectionErrors([]);
+    setStreamStats({ framesReceived: 0, lastFrameTime: 0, fps: 0 });
+    fpsCounterRef.current = { count: 0, lastTime: Date.now() };
+    
     console.log('Connecting to source:', selectedSource || customRTMPUrl);
     
     try {
@@ -216,7 +223,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       wsRef.current = ws;
       
       ws.onopen = () => {
-        console.log('Connected to bridge');
+        console.log('Connected to bridge for streaming');
         setConnectionStatus('connected');
         setIsConnected(true);
         setConnectionErrors([]);
@@ -225,6 +232,7 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
         const streamType = source?.type || 'rtmp';
         const streamUrl = source?.url || customRTMPUrl;
         
+        console.log(`Requesting stream: ${streamUrl} (${streamType})`);
         ws.send(JSON.stringify({ 
           type: 'request_stream',
           source: streamUrl,
@@ -236,8 +244,15 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
         try {
           const data = JSON.parse(event.data);
           
-          if (data.type === 'frame' && data.imageData) {
-            processFrameData(data.imageData, data.width, data.height);
+          if (data.type === 'stream_started') {
+            console.log('Stream started:', data.source);
+            setConnectionStatus('streaming');
+          } else if (data.type === 'frame' && data.imageData) {
+            processFrameData(data.imageData, data.width, data.height, data.frameNumber);
+            updateStreamStats(data.frameNumber);
+          } else if (data.type === 'error') {
+            console.error('Stream error:', data.message);
+            setConnectionErrors(prev => [...prev, `Stream error: ${data.message}`]);
           }
         } catch (error) {
           console.error('Error processing stream message:', error);
@@ -263,8 +278,25 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
     }
   };
 
+  // Update stream statistics
+  const updateStreamStats = (frameNumber?: number) => {
+    const now = Date.now();
+    fpsCounterRef.current.count++;
+    
+    const timeDiff = now - fpsCounterRef.current.lastTime;
+    if (timeDiff >= 1000) { // Update FPS every second
+      const fps = Math.round((fpsCounterRef.current.count * 1000) / timeDiff);
+      setStreamStats(prev => ({
+        framesReceived: frameNumber || prev.framesReceived + 1,
+        lastFrameTime: now,
+        fps: fps
+      }));
+      fpsCounterRef.current = { count: 0, lastTime: now };
+    }
+  };
+
   // Process incoming frame data
-  const processFrameData = (imageData: string, width: number, height: number) => {
+  const processFrameData = (imageData: string, width: number, height: number, frameNumber?: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -347,23 +379,44 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Connection Status */}
+        {/* Enhanced Connection Status */}
         <div className="flex items-center justify-between">
           <Label>Status</Label>
-          <Badge variant={isConnected ? "default" : "secondary"}>
-            {isConnected ? (
-              <>
-                <Wifi className="w-3 h-3 mr-1" />
-                Connected
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-3 h-3 mr-1" />
-                Disconnected
-              </>
+          <div className="flex items-center gap-2">
+            <Badge variant={isConnected ? "default" : "secondary"}>
+              {connectionStatus === 'streaming' ? (
+                <>
+                  <CheckCircle className="w-3 h-3 mr-1" />
+                  Streaming
+                </>
+              ) : isConnected ? (
+                <>
+                  <Wifi className="w-3 h-3 mr-1" />
+                  Connected
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-3 h-3 mr-1" />
+                  Disconnected
+                </>
+              )}
+            </Badge>
+            {connectionStatus === 'streaming' && (
+              <Badge variant="outline" className="text-xs">
+                {streamStats.fps} FPS
+              </Badge>
             )}
-          </Badge>
+          </div>
         </div>
+
+        {/* Stream Statistics */}
+        {connectionStatus === 'streaming' && (
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div>Frames received: {streamStats.framesReceived}</div>
+            <div>Frame rate: {streamStats.fps} FPS</div>
+            <div>Last frame: {streamStats.lastFrameTime ? new Date(streamStats.lastFrameTime).toLocaleTimeString() : 'None'}</div>
+          </div>
+        )}
 
         {/* Connection Errors */}
         {connectionErrors.length > 0 && (
