@@ -1,323 +1,111 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Video, VideoOff, Wifi, WifiOff, RefreshCw, Radio, AlertCircle, CheckCircle } from 'lucide-react';
+import { Video, VideoOff, Wifi, WifiOff, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface StreamHandlerProps {
   onMaskUpdate: (maskData: ImageData | null) => void;
   showPreview: boolean;
 }
 
-interface StreamSource {
-  name: string;
-  type: 'ndi' | 'rtmp' | 'websocket';
-  url: string;
-}
-
 const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview }) => {
   const [isConnected, setIsConnected] = useState(false);
-  const [selectedSource, setSelectedSource] = useState<string>('');
-  const [availableSources, setAvailableSources] = useState<StreamSource[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'streaming' | 'error'>('disconnected');
-  const [isScanning, setIsScanning] = useState(false);
-  const [customRTMPUrl, setCustomRTMPUrl] = useState('rtmp://localhost:1935/live/stream1');
-  const [bridgeUrl, setBridgeUrl] = useState('ws://localhost:8081/ndi');
-  const [touchDesignerUrl, setTouchDesignerUrl] = useState('ws://localhost:8081');
-  const [connectionErrors, setConnectionErrors] = useState<string[]>([]);
-  const [streamStats, setStreamStats] = useState({ framesReceived: 0, lastFrameTime: 0, fps: 0 });
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+  const [touchDesignerUrl, setTouchDesignerUrl] = useState('ws://localhost:8080');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [frameCount, setFrameCount] = useState(0);
+  
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const fpsCounterRef = useRef({ count: 0, lastTime: Date.now() });
 
-  // Clear any existing timeouts
-  const clearReconnectTimeout = () => {
+  // Connect to TouchDesigner WebSocket
+  const connectToTouchDesigner = () => {
+    setConnectionStatus('connecting');
+    setErrorMessage('');
+    
+    // Clear any existing connection
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    
+    // Clear reconnect timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-  };
-
-  // Enhanced scan for sources with better error handling
-  const scanForSources = async () => {
-    setIsScanning(true);
-    setConnectionErrors([]);
-    console.log('Connecting to NDI bridge server...');
+    
+    console.log('Connecting to TouchDesigner:', touchDesignerUrl);
     
     try {
-      const ws = new WebSocket(bridgeUrl);
-      
-      const timeout = setTimeout(() => {
-        ws.close();
-        setIsScanning(false);
-        setConnectionErrors(prev => [...prev, 'Bridge server connection timeout. Make sure "node ndi-bridge-server.cjs" is running on port 8081.']);
-        console.error('Connection to bridge server timed out');
-      }, 5000);
-      
-      ws.onopen = () => {
-        clearTimeout(timeout);
-        console.log('Connected to NDI bridge server');
-        setConnectionErrors([]);
-        // Request sources explicitly
-        ws.send(JSON.stringify({ type: 'request_sources' }));
-      };
-      
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          if (data.type === 'sources_available') {
-            console.log('Available sources:', data.sources);
-            // Add TouchDesigner direct WebSocket option
-            const sources = [
-              { name: 'TouchDesigner Direct (WebSocket)', type: 'websocket', url: touchDesignerUrl },
-              ...data.sources
-            ];
-            setAvailableSources(sources);
-            setIsScanning(false);
-            ws.close(); // Close the scanning connection
-          }
-        } catch (error) {
-          console.error('Error parsing bridge message:', error);
-          setConnectionErrors(prev => [...prev, 'Error parsing bridge server response']);
-          setIsScanning(false);
-        }
-      };
-      
-      ws.onerror = (error) => {
-        clearTimeout(timeout);
-        console.error('Bridge connection error:', error);
-        setConnectionErrors(prev => [...prev, `Bridge connection failed. Check if "node ndi-bridge-server.cjs" is running on port 8081`]);
-        setIsScanning(false);
-      };
-      
-      ws.onclose = () => {
-        clearTimeout(timeout);
-      };
-      
-    } catch (error) {
-      console.error('Failed to connect to bridge server:', error);
-      setConnectionErrors(prev => [...prev, 'Failed to connect to bridge server']);
-      setIsScanning(false);
-    }
-  };
-
-  // Connect directly to TouchDesigner WebSocket with better error handling
-  const connectToTouchDesigner = () => {
-    setConnectionStatus('connecting');
-    setConnectionErrors([]);
-    clearReconnectTimeout();
-    
-    console.log('Connecting directly to TouchDesigner WebSocket:', touchDesignerUrl);
-    
-    try {
-      // Close existing connection
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      
       const ws = new WebSocket(touchDesignerUrl);
       wsRef.current = ws;
       
-      // Connection timeout
-      const connectionTimeout = setTimeout(() => {
-        ws.close();
-        setConnectionStatus('error');
-        setConnectionErrors(prev => [...prev, 'TouchDesigner connection timeout. Check WebSocket DAT: Active=On, Network Address=localhost, Port=8081']);
-      }, 10000);
-      
       ws.onopen = () => {
-        clearTimeout(connectionTimeout);
-        console.log('Connected to TouchDesigner WebSocket');
+        console.log('Connected to TouchDesigner');
         setConnectionStatus('connected');
         setIsConnected(true);
-        setConnectionErrors([]);
+        setErrorMessage('');
         
-        // Request initial frame
-        ws.send(JSON.stringify({ type: 'request_frame' }));
-        
-        // Set up periodic frame requests
-        const frameInterval = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'request_frame' }));
-          } else {
-            clearInterval(frameInterval);
-          }
-        }, 1000 / 30); // 30 FPS
+        // Send initial handshake
+        ws.send(JSON.stringify({ type: 'hello' }));
       };
       
       ws.onmessage = (event) => {
         try {
+          // Handle JSON messages
           const data = JSON.parse(event.data);
+          console.log('Received message:', data.type);
           
-          if (data.type === 'frame' && data.imageData) {
-            processFrameData(data.imageData, data.width, data.height);
+          if (data.type === 'frame' && data.image) {
+            processImageData(data.image);
           }
         } catch (error) {
-          // Try to handle raw image data
-          if (typeof event.data === 'string' && event.data.startsWith('data:image')) {
-            processDirectImageData(event.data);
-          } else {
-            console.error('Error processing TouchDesigner message:', error);
+          // Handle direct image data
+          if (typeof event.data === 'string') {
+            if (event.data.startsWith('data:image')) {
+              processImageData(event.data);
+            } else if (event.data.startsWith('/9j/') || event.data.includes('base64')) {
+              // Handle base64 image data
+              processImageData(`data:image/jpeg;base64,${event.data}`);
+            }
           }
         }
       };
       
       ws.onerror = (error) => {
-        clearTimeout(connectionTimeout);
-        console.error('TouchDesigner WebSocket error:', error);
+        console.error('WebSocket error:', error);
         setConnectionStatus('error');
-        setConnectionErrors(prev => [...prev, `TouchDesigner connection failed. Verify WebSocket DAT: Active=On, Network Address=localhost, Port=8081 (NOT ws://localhost:8081)`]);
+        setErrorMessage('Connection failed. Make sure TouchDesigner WebSocket DAT is active on the specified port.');
       };
       
       ws.onclose = () => {
-        clearTimeout(connectionTimeout);
         console.log('TouchDesigner connection closed');
         setIsConnected(false);
         setConnectionStatus('disconnected');
         
-        // Auto-reconnect after 3 seconds if it was an unexpected closure
+        // Auto-reconnect if it was an unexpected closure
         if (connectionStatus === 'connected') {
           reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('Attempting to reconnect to TouchDesigner...');
+            console.log('Attempting to reconnect...');
             connectToTouchDesigner();
           }, 3000);
         }
       };
       
     } catch (error) {
-      console.error('Failed to connect to TouchDesigner:', error);
+      console.error('Failed to create WebSocket:', error);
       setConnectionStatus('error');
-      setConnectionErrors(prev => [...prev, 'Failed to create TouchDesigner WebSocket connection']);
+      setErrorMessage('Failed to create WebSocket connection');
     }
   };
 
-  // Enhanced connect to source with better stream handling
-  const connectToSource = async () => {
-    if (!selectedSource && !customRTMPUrl) {
-      setConnectionErrors(['No source selected']);
-      return;
-    }
-    
-    const source = availableSources.find(s => s.name === selectedSource);
-    
-    // If TouchDesigner direct connection is selected
-    if (source?.type === 'websocket') {
-      connectToTouchDesigner();
-      return;
-    }
-    
-    setConnectionStatus('connecting');
-    setConnectionErrors([]);
-    setStreamStats({ framesReceived: 0, lastFrameTime: 0, fps: 0 });
-    fpsCounterRef.current = { count: 0, lastTime: Date.now() };
-    
-    console.log('Connecting to source:', selectedSource || customRTMPUrl);
-    
-    try {
-      const ws = new WebSocket(bridgeUrl);
-      wsRef.current = ws;
-      
-      ws.onopen = () => {
-        console.log('Connected to bridge for streaming');
-        setConnectionStatus('connected');
-        setIsConnected(true);
-        setConnectionErrors([]);
-        
-        // Request stream
-        const streamType = source?.type || 'rtmp';
-        const streamUrl = source?.url || customRTMPUrl;
-        
-        console.log(`Requesting stream: ${streamUrl} (${streamType})`);
-        ws.send(JSON.stringify({ 
-          type: 'request_stream',
-          source: streamUrl,
-          streamType: streamType
-        }));
-      };
-      
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          if (data.type === 'stream_started') {
-            console.log('Stream started:', data.source);
-            setConnectionStatus('streaming');
-          } else if (data.type === 'frame' && data.imageData) {
-            processFrameData(data.imageData, data.width, data.height, data.frameNumber);
-            updateStreamStats(data.frameNumber);
-          } else if (data.type === 'error') {
-            console.error('Stream error:', data.message);
-            setConnectionErrors(prev => [...prev, `Stream error: ${data.message}`]);
-          }
-        } catch (error) {
-          console.error('Error processing stream message:', error);
-        }
-      };
-      
-      ws.onerror = (error) => {
-        console.error('Stream WebSocket error:', error);
-        setConnectionStatus('error');
-        setConnectionErrors(prev => [...prev, 'Bridge server stream connection failed']);
-      };
-      
-      ws.onclose = () => {
-        console.log('Stream connection closed');
-        setIsConnected(false);
-        setConnectionStatus('disconnected');
-      };
-      
-    } catch (error) {
-      console.error('Failed to connect to stream:', error);
-      setConnectionStatus('error');
-      setConnectionErrors(prev => [...prev, 'Failed to connect to stream']);
-    }
-  };
-
-  // Update stream statistics
-  const updateStreamStats = (frameNumber?: number) => {
-    const now = Date.now();
-    fpsCounterRef.current.count++;
-    
-    const timeDiff = now - fpsCounterRef.current.lastTime;
-    if (timeDiff >= 1000) { // Update FPS every second
-      const fps = Math.round((fpsCounterRef.current.count * 1000) / timeDiff);
-      setStreamStats(prev => ({
-        framesReceived: frameNumber || prev.framesReceived + 1,
-        lastFrameTime: now,
-        fps: fps
-      }));
-      fpsCounterRef.current = { count: 0, lastTime: now };
-    }
-  };
-
-  // Process incoming frame data
-  const processFrameData = (imageData: string, width: number, height: number, frameNumber?: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    const img = new Image();
-    img.onload = () => {
-      canvas.width = width;
-      canvas.height = height;
-      ctx.drawImage(img, 0, 0);
-      
-      // Extract mask data
-      const maskData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      onMaskUpdate(maskData);
-    };
-    img.src = `data:image/jpeg;base64,${imageData}`;
-  };
-
-  // Process direct image data
-  const processDirectImageData = (dataUrl: string) => {
+  // Process incoming image data
+  const processImageData = (imageData: string) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -330,43 +118,40 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       canvas.height = img.height;
       ctx.drawImage(img, 0, 0);
       
-      // Extract mask data
+      // Extract mask data for simulation
       const maskData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       onMaskUpdate(maskData);
+      
+      setFrameCount(prev => prev + 1);
     };
-    img.src = dataUrl;
+    img.src = imageData;
   };
 
-  const disconnectFromSource = () => {
-    clearReconnectTimeout();
+  const disconnect = () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
     
     if (wsRef.current) {
-      wsRef.current.send(JSON.stringify({ type: 'stop_stream' }));
       wsRef.current.close();
     }
+    
     setIsConnected(false);
     setConnectionStatus('disconnected');
     onMaskUpdate(null);
+    setFrameCount(0);
   };
 
-  const addCustomRTMPSource = () => {
-    if (customRTMPUrl && !availableSources.find(s => s.url === customRTMPUrl)) {
-      const newSource: StreamSource = {
-        name: `Custom RTMP (${customRTMPUrl.split('/').pop()})`,
-        type: 'rtmp',
-        url: customRTMPUrl
-      };
-      setAvailableSources(prev => [...prev, newSource]);
-      setSelectedSource(newSource.name);
-    }
-  };
-
-  // Auto-scan on component mount
+  // Cleanup on unmount
   useEffect(() => {
-    scanForSources();
-    
     return () => {
-      clearReconnectTimeout();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   }, []);
 
@@ -375,23 +160,18 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Video className="w-5 h-5" />
-          Stream Handler
+          TouchDesigner Stream
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Enhanced Connection Status */}
+        {/* Connection Status */}
         <div className="flex items-center justify-between">
           <Label>Status</Label>
           <div className="flex items-center gap-2">
             <Badge variant={isConnected ? "default" : "secondary"}>
-              {connectionStatus === 'streaming' ? (
+              {isConnected ? (
                 <>
                   <CheckCircle className="w-3 h-3 mr-1" />
-                  Streaming
-                </>
-              ) : isConnected ? (
-                <>
-                  <Wifi className="w-3 h-3 mr-1" />
                   Connected
                 </>
               ) : (
@@ -401,139 +181,42 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
                 </>
               )}
             </Badge>
-            {connectionStatus === 'streaming' && (
+            {isConnected && (
               <Badge variant="outline" className="text-xs">
-                {streamStats.fps} FPS
+                {frameCount} frames
               </Badge>
             )}
           </div>
         </div>
 
-        {/* Stream Statistics */}
-        {connectionStatus === 'streaming' && (
-          <div className="text-xs text-muted-foreground space-y-1">
-            <div>Frames received: {streamStats.framesReceived}</div>
-            <div>Frame rate: {streamStats.fps} FPS</div>
-            <div>Last frame: {streamStats.lastFrameTime ? new Date(streamStats.lastFrameTime).toLocaleTimeString() : 'None'}</div>
+        {/* Error Message */}
+        {errorMessage && (
+          <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 p-2 rounded">
+            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
-        {/* Connection Errors */}
-        {connectionErrors.length > 0 && (
-          <div className="space-y-2">
-            {connectionErrors.map((error, index) => (
-              <div key={index} className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 p-2 rounded">
-                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* TouchDesigner Direct WebSocket URL */}
+        {/* TouchDesigner WebSocket URL */}
         <div className="space-y-2">
           <Label>TouchDesigner WebSocket URL</Label>
           <Input
             value={touchDesignerUrl}
             onChange={(e) => setTouchDesignerUrl(e.target.value)}
-            placeholder="ws://localhost:8081"
+            placeholder="ws://localhost:8080"
             disabled={isConnected}
           />
           <div className="text-xs text-muted-foreground">
-            Configure WebSocket DAT: Network Address=localhost, Port=8081, Active=On
-          </div>
-        </div>
-
-        {/* Bridge Server URL */}
-        <div className="space-y-2">
-          <Label>Bridge Server URL</Label>
-          <Input
-            value={bridgeUrl}
-            onChange={(e) => setBridgeUrl(e.target.value)}
-            placeholder="ws://localhost:8081/ndi"
-            disabled={isConnected}
-          />
-          <div className="text-xs text-muted-foreground">
-            Make sure ndi-bridge-server.js is running
-          </div>
-        </div>
-
-        {/* Scan for Sources */}
-        <Button
-          onClick={scanForSources}
-          variant="outline"
-          className="w-full"
-          disabled={isScanning || isConnected}
-        >
-          {isScanning ? (
-            <>
-              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-              Scanning...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Scan for Sources
-            </>
-          )}
-        </Button>
-
-        {/* Source Selection */}
-        <div className="space-y-2">
-          <Label>Available Sources</Label>
-          <Select
-            value={selectedSource}
-            onValueChange={setSelectedSource}
-            disabled={isConnected}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select source..." />
-            </SelectTrigger>
-            <SelectContent>
-              {availableSources.map((source) => (
-                <SelectItem key={source.name} value={source.name}>
-                  <div className="flex items-center gap-2">
-                    {source.type === 'ndi' ? (
-                      <Video className="w-4 h-4" />
-                    ) : source.type === 'websocket' ? (
-                      <Wifi className="w-4 h-4" />
-                    ) : (
-                      <Radio className="w-4 h-4" />
-                    )}
-                    {source.name}
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Custom RTMP URL */}
-        <div className="space-y-2">
-          <Label>Custom RTMP Stream</Label>
-          <div className="flex gap-2">
-            <Input
-              value={customRTMPUrl}
-              onChange={(e) => setCustomRTMPUrl(e.target.value)}
-              placeholder="rtmp://localhost:1935/live/stream1"
-              disabled={isConnected}
-            />
-            <Button
-              onClick={addCustomRTMPSource}
-              variant="outline"
-              disabled={isConnected || !customRTMPUrl}
-            >
-              Add
-            </Button>
+            Configure WebSocket DAT: Active=On, Network Address=localhost, Port=8080
           </div>
         </div>
 
         {/* Connect/Disconnect Button */}
         <Button
-          onClick={isConnected ? disconnectFromSource : connectToSource}
+          onClick={isConnected ? disconnect : connectToTouchDesigner}
           variant={isConnected ? "destructive" : "default"}
           className="w-full"
-          disabled={connectionStatus === 'connecting' || (!selectedSource && !customRTMPUrl && !isConnected)}
+          disabled={connectionStatus === 'connecting'}
         >
           {connectionStatus === 'connecting' ? (
             'Connecting...'
@@ -544,31 +227,37 @@ const StreamHandler: React.FC<StreamHandlerProps> = ({ onMaskUpdate, showPreview
             </>
           ) : (
             <>
-              <Video className="w-4 h-4 mr-2" />
-              Connect to Stream
+              <Wifi className="w-4 h-4 mr-2" />
+              Connect to TouchDesigner
             </>
           )}
         </Button>
 
-        {/* Preview Elements */}
-        <div style={{ display: showPreview ? 'block' : 'none' }}>
-          <canvas
-            ref={canvasRef}
-            style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', border: '1px solid #333' }}
-          />
-        </div>
-
-        {/* Status Messages */}
-        {connectionStatus === 'error' && (
-          <div className="text-sm text-destructive">
-            Failed to connect. Make sure the bridge server is running on {bridgeUrl}
+        {/* Preview Canvas */}
+        {showPreview && (
+          <div className="space-y-2">
+            <Label>Stream Preview</Label>
+            <canvas
+              ref={canvasRef}
+              style={{ 
+                width: '100%', 
+                maxHeight: '200px', 
+                objectFit: 'contain', 
+                border: '1px solid hsl(var(--border))',
+                borderRadius: '4px'
+              }}
+            />
           </div>
         )}
-        
+
+        {/* Instructions */}
         <div className="text-xs text-muted-foreground space-y-1">
-          <div>Found {availableSources.length} source(s)</div>
-          <div className="font-mono">Bridge: {bridgeUrl}</div>
-          <div className="font-mono">TouchDesigner: {touchDesignerUrl}</div>
+          <div className="font-semibold">TouchDesigner Setup:</div>
+          <div>1. Add a WebSocket DAT to your project</div>
+          <div>2. Set Active = On</div>
+          <div>3. Set Network Address = localhost</div>
+          <div>4. Set Network Port = 8080</div>
+          <div>5. Send image data via WebSocket</div>
         </div>
       </CardContent>
     </Card>
