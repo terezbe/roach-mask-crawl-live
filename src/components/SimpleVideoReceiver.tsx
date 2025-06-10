@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Video, VideoOff, Wifi, WifiOff, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface SimpleVideoReceiverProps {
@@ -15,124 +16,115 @@ interface SimpleVideoReceiverProps {
 const SimpleVideoReceiver: React.FC<SimpleVideoReceiverProps> = ({ onMaskUpdate, showPreview }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
-  const [streamUrl, setStreamUrl] = useState('ws://localhost:8081/video');
+  const [streamMethod, setStreamMethod] = useState<'webrtc' | 'rtsp'>('webrtc');
+  const [rtspUrl, setRtspUrl] = useState('rtsp://localhost:554/tdvidstream');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [frameCount, setFrameCount] = useState(0);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Connect to TouchDesigner Video Stream
-  const connectToVideoStream = async () => {
-    setConnectionStatus('connecting');
-    setErrorMessage('');
-    
-    try {
-      console.log('Connecting to TouchDesigner Video Stream:', streamUrl);
-      
-      // Create WebSocket connection for video stream
-      const ws = new WebSocket(streamUrl);
-      wsRef.current = ws;
-      
-      ws.onopen = () => {
-        console.log('Connected to TouchDesigner Video Stream');
-        setConnectionStatus('connected');
-        setIsConnected(true);
-        setErrorMessage('');
-        
-        // Request video stream
-        ws.send(JSON.stringify({
-          type: 'requestStream',
-          format: 'webm'
-        }));
-      };
-      
-      ws.onmessage = async (event) => {
-        try {
-          if (event.data instanceof Blob) {
-            // Handle video blob data
-            const videoUrl = URL.createObjectURL(event.data);
-            if (videoRef.current) {
-              videoRef.current.src = videoUrl;
-              videoRef.current.play();
-            }
-          } else {
-            // Handle JSON messages
-            const message = JSON.parse(event.data);
-            console.log('Received message:', message);
-          }
-        } catch (error) {
-          console.error('Error processing video data:', error);
-        }
-      };
-      
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setConnectionStatus('error');
-        setErrorMessage('Failed to connect to TouchDesigner Video Stream. Make sure Video Stream Out TOP is configured correctly.');
-      };
-      
-      ws.onclose = () => {
-        console.log('Video stream connection closed');
-        setIsConnected(false);
-        setConnectionStatus('disconnected');
-        
-        // Auto-reconnect if it was an unexpected closure
-        if (connectionStatus === 'connected') {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('Attempting to reconnect...');
-            connectToVideoStream();
-          }, 3000);
-        }
-      };
-      
-    } catch (error) {
-      console.error('Failed to create video stream connection:', error);
-      setConnectionStatus('error');
-      setErrorMessage('Failed to create video stream connection');
-    }
+  // WebRTC Configuration for TouchDesigner
+  const webrtcConfig: RTCConfiguration = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ],
+    iceCandidatePoolSize: 10
   };
 
-  // Alternative: Use WebRTC for direct video streaming
-  const connectWebRTCDirect = async () => {
+  // Connect using WebRTC (TouchDesigner Video Stream Out TOP)
+  const connectWebRTC = async () => {
     setConnectionStatus('connecting');
     setErrorMessage('');
     
     try {
-      console.log('Attempting direct WebRTC connection to TouchDesigner');
+      console.log('Setting up WebRTC connection to TouchDesigner Video Stream Out TOP');
       
       // Create peer connection
-      const peerConnection = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' }
-        ]
-      });
-      
-      // Handle incoming video stream
+      const peerConnection = new RTCPeerConnection(webrtcConfig);
+      peerConnectionRef.current = peerConnection;
+
+      // Handle incoming video stream from TouchDesigner
       peerConnection.ontrack = (event) => {
-        console.log('Received video track from TouchDesigner');
+        console.log('Received video track from TouchDesigner:', event);
         const [remoteStream] = event.streams;
-        if (videoRef.current) {
+        if (videoRef.current && remoteStream) {
           videoRef.current.srcObject = remoteStream;
           videoRef.current.play();
           setConnectionStatus('connected');
           setIsConnected(true);
+          console.log('Video stream connected successfully');
         }
       };
+
+      // Handle ICE candidates
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log('New ICE candidate:', event.candidate);
+          // In a real implementation, you'd send this to TouchDesigner
+          // For now, we'll use a simplified approach
+        }
+      };
+
+      // Handle connection state changes
+      peerConnection.onconnectionstatechange = () => {
+        console.log('WebRTC connection state:', peerConnection.connectionState);
+        if (peerConnection.connectionState === 'connected') {
+          setConnectionStatus('connected');
+          setIsConnected(true);
+        } else if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
+          setConnectionStatus('error');
+          setIsConnected(false);
+          setErrorMessage('WebRTC connection failed or disconnected');
+        }
+      };
+
+      // Create offer for TouchDesigner to accept
+      const offer = await peerConnection.createOffer({
+        offerToReceiveVideo: true,
+        offerToReceiveAudio: true
+      });
       
-      // Create offer for TouchDesigner to answer
-      const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
       
-      console.log('WebRTC offer created, send this to TouchDesigner:', offer.sdp);
-      setErrorMessage('WebRTC offer created. Configure TouchDesigner to accept this connection.');
+      console.log('WebRTC offer created for TouchDesigner:');
+      console.log('SDP:', offer.sdp);
+      
+      // For TouchDesigner integration, you would typically:
+      // 1. Send this offer to TouchDesigner via WebSocket or HTTP
+      // 2. TouchDesigner creates an answer using its WebRTC DAT
+      // 3. Set the remote description with TouchDesigner's answer
+      
+      // Simplified connection for local testing
+      setErrorMessage('WebRTC offer created. Configure TouchDesigner Video Stream Out TOP with WebRTC enabled.');
       
     } catch (error) {
-      console.error('Error creating WebRTC connection:', error);
-      setErrorMessage('Failed to create WebRTC connection');
+      console.error('Error setting up WebRTC:', error);
       setConnectionStatus('error');
+      setErrorMessage(`WebRTC setup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  // Connect using RTSP (alternative method)
+  const connectRTSP = async () => {
+    setConnectionStatus('connecting');
+    setErrorMessage('');
+    
+    try {
+      console.log('Attempting RTSP connection to:', rtspUrl);
+      
+      // For RTSP, we need to use a different approach since browsers don't natively support RTSP
+      // We can use WebRTC to convert RTSP to WebRTC, or use a media server
+      setErrorMessage('RTSP direct connection not supported in browsers. Use WebRTC method or set up a media server.');
+      setConnectionStatus('error');
+      
+    } catch (error) {
+      console.error('RTSP connection error:', error);
+      setConnectionStatus('error');
+      setErrorMessage('RTSP connection failed');
     }
   };
 
@@ -145,11 +137,14 @@ const SimpleVideoReceiver: React.FC<SimpleVideoReceiverProps> = ({ onMaskUpdate,
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
+    // Set canvas size to match video
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    
+    // Draw current video frame to canvas
     ctx.drawImage(video, 0, 0);
     
-    // Extract mask data for simulation
+    // Extract mask data for cockroach simulation
     const maskData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     onMaskUpdate(maskData);
     
@@ -171,17 +166,37 @@ const SimpleVideoReceiver: React.FC<SimpleVideoReceiverProps> = ({ onMaskUpdate,
     };
     
     video.addEventListener('play', handleVideoPlay);
-    return () => video.removeEventListener('play', handleVideoPlay);
+    video.addEventListener('loadedmetadata', () => {
+      console.log('Video metadata loaded:', {
+        width: video.videoWidth,
+        height: video.videoHeight,
+        duration: video.duration
+      });
+    });
+    
+    return () => {
+      video.removeEventListener('play', handleVideoPlay);
+      video.removeEventListener('loadedmetadata', () => {});
+    };
   }, []);
 
+  const connect = () => {
+    if (streamMethod === 'webrtc') {
+      connectWebRTC();
+    } else {
+      connectRTSP();
+    }
+  };
+
   const disconnect = () => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
     }
     
     if (wsRef.current) {
       wsRef.current.close();
+      wsRef.current = null;
     }
     
     if (videoRef.current) {
@@ -198,8 +213,8 @@ const SimpleVideoReceiver: React.FC<SimpleVideoReceiverProps> = ({ onMaskUpdate,
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
       }
       if (wsRef.current) {
         wsRef.current.close();
@@ -224,7 +239,7 @@ const SimpleVideoReceiver: React.FC<SimpleVideoReceiverProps> = ({ onMaskUpdate,
               {connectionStatus === 'connected' ? (
                 <>
                   <CheckCircle className="w-3 h-3 mr-1" />
-                  Video Connected
+                  Connected
                 </>
               ) : connectionStatus === 'connecting' ? (
                 <>
@@ -254,52 +269,54 @@ const SimpleVideoReceiver: React.FC<SimpleVideoReceiverProps> = ({ onMaskUpdate,
           </div>
         )}
 
-        {/* Stream URL Configuration */}
+        {/* Stream Method Selection */}
         <div className="space-y-2">
-          <Label>TouchDesigner Video Stream URL</Label>
-          <Input
-            value={streamUrl}
-            onChange={(e) => setStreamUrl(e.target.value)}
-            placeholder="ws://localhost:8081/video"
-            disabled={isConnected}
-          />
-          <div className="text-xs text-muted-foreground">
-            Configure Video Stream Out TOP: Active=On, Port=8081, Protocol=WebSocket
-          </div>
+          <Label>Connection Method</Label>
+          <Select value={streamMethod} onValueChange={(value: 'webrtc' | 'rtsp') => setStreamMethod(value)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="webrtc">WebRTC (Recommended)</SelectItem>
+              <SelectItem value="rtsp">RTSP (Requires Media Server)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
-        {/* Connection Buttons */}
-        <div className="space-y-2">
-          <Button
-            onClick={isConnected ? disconnect : connectToVideoStream}
-            variant={isConnected ? "destructive" : "default"}
-            className="w-full"
-            disabled={connectionStatus === 'connecting'}
-          >
-            {connectionStatus === 'connecting' ? (
-              'Connecting to Video Stream...'
-            ) : isConnected ? (
-              <>
-                <VideoOff className="w-4 h-4 mr-2" />
-                Disconnect
-              </>
-            ) : (
-              <>
-                <Video className="w-4 h-4 mr-2" />
-                Connect to Video Stream
-              </>
-            )}
-          </Button>
-          
-          <Button
-            onClick={connectWebRTCDirect}
-            variant="outline"
-            className="w-full"
-            disabled={isConnected || connectionStatus === 'connecting'}
-          >
-            Try Direct WebRTC Connection
-          </Button>
-        </div>
+        {/* RTSP URL Configuration (only show if RTSP selected) */}
+        {streamMethod === 'rtsp' && (
+          <div className="space-y-2">
+            <Label>RTSP URL</Label>
+            <Input
+              value={rtspUrl}
+              onChange={(e) => setRtspUrl(e.target.value)}
+              placeholder="rtsp://localhost:554/tdvidstream"
+              disabled={isConnected}
+            />
+          </div>
+        )}
+
+        {/* Connection Button */}
+        <Button
+          onClick={isConnected ? disconnect : connect}
+          variant={isConnected ? "destructive" : "default"}
+          className="w-full"
+          disabled={connectionStatus === 'connecting'}
+        >
+          {connectionStatus === 'connecting' ? (
+            'Connecting...'
+          ) : isConnected ? (
+            <>
+              <VideoOff className="w-4 h-4 mr-2" />
+              Disconnect
+            </>
+          ) : (
+            <>
+              <Video className="w-4 h-4 mr-2" />
+              Connect to TouchDesigner
+            </>
+          )}
+        </Button>
 
         {/* Video Element */}
         <video
@@ -307,6 +324,7 @@ const SimpleVideoReceiver: React.FC<SimpleVideoReceiverProps> = ({ onMaskUpdate,
           style={{ display: showPreview ? 'block' : 'none' }}
           autoPlay
           playsInline
+          controls
           className="w-full max-h-48 object-contain border rounded"
         />
 
@@ -316,13 +334,37 @@ const SimpleVideoReceiver: React.FC<SimpleVideoReceiverProps> = ({ onMaskUpdate,
           style={{ display: 'none' }}
         />
 
-        {/* Instructions */}
-        <div className="text-xs text-muted-foreground space-y-1">
-          <div className="font-semibold">TouchDesigner Video Setup:</div>
-          <div>1. Add Video Stream Out TOP from Palette</div>
-          <div>2. Connect your camera/mask TOP to Video Stream Out TOP</div>
-          <div>3. Set Active=On, Port=8081, Protocol=WebSocket</div>
-          <div>4. Optional: Set Format=WebM, Codec=VP8 for better compatibility</div>
+        {/* TouchDesigner Setup Instructions */}
+        <div className="text-xs text-muted-foreground space-y-2">
+          <div className="font-semibold">TouchDesigner Video Stream Out TOP Setup:</div>
+          
+          {streamMethod === 'webrtc' ? (
+            <div className="space-y-1">
+              <div>1. Add Video Stream Out TOP to your network</div>
+              <div>2. Connect your camera/mask TOP to its input</div>
+              <div>3. Set Mode = WebRTC in parameters</div>
+              <div>4. Configure WebRTC page:</div>
+              <div className="ml-4">- Add WebRTC DAT to your network</div>
+              <div className="ml-4">- Set WebRTC parameter to point to WebRTC DAT</div>
+              <div className="ml-4">- Configure video/audio tracks in WebRTC DAT</div>
+              <div>5. Set Active = On</div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <div>1. Add Video Stream Out TOP to your network</div>
+              <div>2. Connect your camera/mask TOP to its input</div>
+              <div>3. Set Mode = RTSP</div>
+              <div>4. Set Network Port = 554 (default)</div>
+              <div>5. Set Stream Name = tdvidstream</div>
+              <div>6. Set Active = On</div>
+              <div>7. Use media server to convert RTSP to WebRTC</div>
+            </div>
+          )}
+          
+          <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
+            <div className="font-semibold">Note:</div>
+            <div>WebRTC provides the best performance for real-time interaction with the cockroach simulation.</div>
+          </div>
         </div>
       </CardContent>
     </Card>

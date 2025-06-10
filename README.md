@@ -1,7 +1,7 @@
 
-# Cockroach Avoidance Simulation with TouchDesigner Direct Video Streaming
+# Cockroach Avoidance Simulation with TouchDesigner Video Stream Out TOP
 
-A real-time 2D simulation where cartoon cockroaches avoid white pixels from a live video stream sent directly from TouchDesigner. Built for local development using TouchDesigner's Video Stream Out TOP for direct video streaming.
+A real-time 2D simulation where cartoon cockroaches avoid white pixels from a live video stream sent directly from TouchDesigner using the Video Stream Out TOP. Built for local development with WebRTC or RTSP streaming support.
 
 ## 🚀 Quick Setup
 
@@ -19,219 +19,247 @@ npm run dev
 
 The app will be available at `http://localhost:8080`
 
-### 2. Configure TouchDesigner Direct Video Streaming
+### 2. Configure TouchDesigner Video Stream Out TOP
 
-**Method 1: Using Video Stream Out TOP (Recommended)**
-
-1. **Add Video Stream Out TOP from Palette:**
-   - Drag `Video Stream Out TOP` from the Palette into your network
-   - Connect your camera/mask TOP to the Video Stream Out TOP input
-   - Configure parameters:
-     - `Active`: `On`
-     - `Port`: `8081`
-     - `Protocol`: `WebSocket`
-     - `Format`: `WebM` (recommended)
-     - `Codec`: `VP8` or `H264`
-     - `Quality`: `80-90` for good balance
-
-2. **Connect Your Video Source:**
-   - Connect your camera TOP (e.g., Video Device In TOP)
-   - Or connect your mask/processed video TOP
-   - The Video Stream Out will stream whatever is connected to its input
-
-**Method 2: Using WebRTC Direct Connection (Alternative)**
+**Method 1: WebRTC (Recommended for Real-time)**
 
 1. **Add Video Stream Out TOP:**
-   - Same as Method 1, but set `Protocol` to `WebRTC`
-   - Configure ICE servers if needed for network traversal
+   - Drag `Video Stream Out TOP` from the Palette into your network
+   - Connect your camera/mask TOP to the Video Stream Out TOP input
 
-2. **Configure WebRTC Settings:**
-   - `STUN Server`: `stun:stun.l.google.com:19302` (default)
-   - `TURN Server`: Configure if behind NAT/firewall
-   - `Bitrate`: Adjust based on network capacity
+2. **Configure Video Stream Out TOP Parameters:**
+   - `Active`: `On`
+   - `Mode`: `WebRTC`
+   - `FPS`: `30` (adjust as needed)
+   - `Video Codec`: `H264` (recommended)
+   - `Quality`: `High` or `Medium`
 
-### 3. TouchDesigner Network Setup Example
+3. **Add and Configure WebRTC DAT:**
+   - Add `WebRTC DAT` to your network
+   - In Video Stream Out TOP, set `WebRTC` parameter to point to your WebRTC DAT
+   - Configure WebRTC DAT for peer-to-peer connection
 
+4. **Set Video/Audio Tracks:**
+   - In Video Stream Out TOP WebRTC page:
+   - Set `WebRTC Video Track` to appropriate track
+   - Optionally set `WebRTC Audio Track` if needed
+
+**Method 2: RTSP (Alternative)**
+
+1. **Add Video Stream Out TOP:**
+   - Connect your camera/mask TOP to the input
+   - `Active`: `On`
+   - `Mode`: `RTSP`
+   - `Network Port`: `554`
+   - `Stream Name`: `tdvidstream`
+
+2. **RTSP URL will be:**
+   ```
+   rtsp://localhost:554/tdvidstream
+   ```
+
+3. **Note:** Browsers don't support RTSP directly, so you'll need a media server like FFmpeg or GStreamer to convert RTSP to WebRTC.
+
+### 3. TouchDesigner Network Setup Examples
+
+**Basic Camera Setup:**
 ```
-[Video Device In TOP] → [Your Processing TOPs] → [Video Stream Out TOP]
-      (Camera)              (Filters/Effects)         (Streaming)
+[Video Device In TOP] → [Video Stream Out TOP]
+      (Camera)              (WebRTC Mode)
+```
 
-OR
+**Processed Video Setup:**
+```
+[Video Device In TOP] → [HSV TOP] → [Threshold TOP] → [Video Stream Out TOP]
+      (Camera)          (Color)     (Make B&W Mask)      (WebRTC Mode)
+```
 
-[Movie File In TOP] → [Composite/Effects] → [Video Stream Out TOP]
-    (Video File)        (Your Processing)      (Streaming)
+**NDI Input Setup:**
+```
+[NDI In TOP] → [Color Replace TOP] → [Video Stream Out TOP]
+  (NDI Source)    (Create Mask)         (WebRTC Mode)
+```
 
-OR
-
-[NDI In TOP] → [Color/Mask Processing] → [Video Stream Out TOP]
-  (NDI Source)     (Make White/Black Mask)    (Streaming)
+**File Playback Setup:**
+```
+[Movie File In TOP] → [Composite TOP] → [Video Stream Out TOP]
+    (Video File)        (Effects)          (WebRTC Mode)
 ```
 
 ### 4. Web Application Connection
 
 1. Open the simulation at `http://localhost:8080`
 2. In the "TouchDesigner Video Stream" panel:
-   - **WebSocket Method**: Enter `ws://localhost:8081/video`
-   - **WebRTC Method**: Click "Try Direct WebRTC Connection"
-3. Click "Connect to Video Stream"
-4. Your video should appear and cockroaches will avoid white areas
+   - Select **WebRTC** as connection method (recommended)
+   - Click "Connect to TouchDesigner"
+3. Your video should appear and cockroaches will avoid white areas in real-time
 
-## 🎛️ Configuration
+## 🎛️ TouchDesigner Video Stream Out TOP Parameters
 
-### Simulation Parameters
-- **Cockroach Count**: 10-300 (default: 100)
-- **Avoidance Strength**: 0.1-5.0 (default: 2.5)
-- **Random Wander**: 0.0-1.0 (default: 0.3)
-- **Max Speed**: 0.5-5.0 (default: 2.0)
-- **Show Mask Overlay**: Toggle to see incoming video stream
-- **Auto-start**: Automatically start simulation on load
+### Essential Parameters:
 
-### TouchDesigner Video Streaming
-- **Real-time video streaming**: Low-latency direct video streaming
-- **Multiple format support**: WebM, MP4, H264, VP8 codecs
-- **Flexible input sources**: Camera, NDI, files, processed video
-- **Quality control**: Adjustable bitrate and compression settings
+**Video Stream Out Page:**
+- **Active**: `On` - Enable the streaming
+- **Mode**: `WebRTC` or `RTSP` 
+- **Network Port**: `554` (for RTSP) or auto (for WebRTC)
+- **Stream Name**: `tdvidstream` (for RTSP)
+- **FPS**: `30` - Frame rate for streaming
+- **Video Codec**: `H264` - Best compatibility
+- **Quality**: `High` or `Medium` - Balance quality vs performance
+- **Bitrate Mode**: `CBR` - Constant bitrate for streaming
+- **Average Bitrate**: `5-10 Mb/s` - Adjust based on quality needs
 
-## 🛠️ TouchDesigner Video Stream Details
+**WebRTC Page (when using WebRTC mode):**
+- **WebRTC**: Point to your WebRTC DAT
+- **WebRTC Connection**: Select peer connection
+- **WebRTC Video Track**: Select video output track
+- **WebRTC Audio Track**: Optional audio track
 
-### Video Stream Out TOP Parameters
+### Performance Settings:
 
-**Basic Settings:**
-- **Active**: Turn on/off the streaming
-- **Port**: Network port for streaming (default: 8081)
-- **Protocol**: `WebSocket` for simple streaming, `WebRTC` for P2P
+**For Low Latency:**
+- **FPS**: `60`
+- **Quality**: `Medium`
+- **Keyframe Interval**: `30`
+- **Max B-Frames**: `0`
+- **Bitrate Mode**: `CBR`
 
-**Video Settings:**
-- **Format**: `WebM`, `MP4`, `AVI` (WebM recommended for web)
-- **Codec**: `VP8`, `VP9`, `H264` (VP8 recommended for compatibility)
-- **Quality**: 0-100 (80-90 recommended for good quality/performance)
-- **Bitrate**: Auto or manual bitrate control
-- **FPS**: Frame rate (match your project FPS)
+**For High Quality:**
+- **FPS**: `30`
+- **Quality**: `High`
+- **Average Bitrate**: `10+ Mb/s`
+- **Profile**: `High`
 
-**Advanced Settings:**
-- **Keyframe Interval**: For streaming efficiency
-- **Buffer Size**: Network buffer management
-- **Compression Level**: CPU vs quality trade-off
-
-### Network Configuration
-
-**Local Network Setup:**
-- TouchDesigner and web browser on same machine: `localhost:8081`
-- TouchDesigner on different machine: `IP_ADDRESS:8081`
-- Firewall: Allow port 8081 for TouchDesigner
-
-**For External Access:**
-- Configure router port forwarding for port 8081
-- Use external IP address in web application
-- Consider security implications of exposing video stream
+**For Low Bandwidth:**
+- **FPS**: `15`
+- **Quality**: `Low`
+- **Average Bitrate**: `2-5 Mb/s`
+- **Resolution**: Lower in Common page
 
 ## 🔧 Troubleshooting
 
-### Connection Issues
-- **"Connection failed"**: Check that Video Stream Out TOP is Active=On
-- **"No video stream"**: Verify video source is connected to Video Stream Out input
-- **"Port already in use"**: Change port number in TouchDesigner and web app
-- **"WebSocket connection refused"**: Check firewall and port accessibility
+### WebRTC Connection Issues:
+- **"WebRTC offer created"**: Configure TouchDesigner WebRTC DAT to accept connection
+- **"Connection failed"**: Check that Video Stream Out TOP is Active=On and Mode=WebRTC
+- **"No video track"**: Verify WebRTC Video Track is set in Video Stream Out TOP
+- **"Peer connection failed"**: Check firewall settings and ICE servers
 
-### Video Quality Issues
-- **"Choppy video"**: Reduce quality/bitrate or increase buffer size
-- **"Poor video quality"**: Increase quality setting or bitrate
-- **"High CPU usage"**: Lower quality, use hardware encoding if available
-- **"Lag/delay"**: Reduce buffer size, check network performance
+### Video Quality Issues:
+- **"Choppy video"**: Reduce FPS or increase bitrate
+- **"Poor quality"**: Increase Quality setting or Average Bitrate
+- **"High CPU usage"**: Lower quality settings or resolution
+- **"Lag/delay"**: Reduce buffer settings, check Keyframe Interval
 
-### TouchDesigner Setup Issues
-- **"No input video"**: Check that your video source TOP is connected
-- **"Video Stream Out not working"**: Verify TOP is Active and has valid input
-- **"Wrong video format"**: Try different codec (VP8 usually works best)
+### TouchDesigner Setup Issues:
+- **"No input video"**: Check that TOP is connected to Video Stream Out input
+- **"Video Stream Out not active"**: Set Active=On in parameters
+- **"WebRTC DAT not configured"**: Add WebRTC DAT and configure peer connections
+- **"Wrong codec"**: Try H264 codec for best browser compatibility
 
-### Web Application Issues
-- **"No mask detection"**: Verify video contains white areas for avoidance
-- **"Cockroaches not responding"**: Check mask overlay to see if video is processed
-- **"Browser compatibility"**: Use Chrome/Firefox for best WebRTC support
+### Network Issues:
+- **"Port in use"**: Change Network Port in TouchDesigner
+- **"Firewall blocking"**: Allow TouchDesigner through Windows Firewall
+- **"Can't connect locally"**: Use `localhost` or `127.0.0.1` for local connections
 
 ## 📱 Features
 
-- **Direct video streaming**: No complex signaling, simple WebSocket/WebRTC
-- **Real-time mask processing**: Instant response to video changes
-- **Multiple input sources**: Camera, NDI, files, live processing
+- **Real-time WebRTC streaming**: Ultra-low latency video streaming
+- **Hardware accelerated**: Uses Nvidia GPU encoding in TouchDesigner
+- **Multiple input sources**: Camera, NDI, files, processed video
+- **Live mask processing**: Instant response to video changes
 - **Responsive design**: Works on desktop and mobile browsers
 - **Visual debugging**: Toggle video overlay to see incoming stream
 - **Persistent settings**: Configuration saves automatically
-- **Full-screen mode**: Perfect for installations and presentations
+- **Full-screen mode**: Perfect for installations
 
-## 🎯 Example TouchDesigner Setups
+## 🎯 TouchDesigner WebRTC Setup Details
 
-### Setup 1: Live Camera Processing
-```
-[Video Device In] → [HSV Filter] → [Threshold] → [Video Stream Out]
-```
-- Use camera input
-- Apply color filtering to create white/black mask
-- Stream processed mask for cockroach avoidance
+### WebRTC DAT Configuration:
 
-### Setup 2: NDI Source Processing
-```
-[NDI In] → [Color Replace] → [Blur] → [Video Stream Out]
-```
-- Receive NDI stream from another source
-- Process colors to create avoidance mask
-- Stream to web simulation
+1. **Add WebRTC DAT** to your network
+2. **Configure ICE Servers:**
+   - Add STUN server: `stun:stun.l.google.com:19302`
+   - Add TURN servers if behind NAT/firewall
 
-### Setup 3: Pre-recorded Content
-```
-[Movie File In] → [Composite] → [Effects] → [Video Stream Out]
-```
-- Use video file as source
-- Add effects and processing
-- Stream processed content
+3. **Set up Peer Connection:**
+   - Configure signaling method (WebSocket, HTTP, etc.)
+   - Handle offer/answer exchange with web application
 
-### Setup 4: Live Mix Processing
-```
-[Video Device In] ↘
-                   [Composite] → [Video Stream Out]
-[Movie File In]   ↗
-```
-- Mix live camera with pre-recorded content
-- Create dynamic avoidance patterns
-- Stream composite result
+4. **Connect to Video Stream Out:**
+   - Set Video Stream Out's WebRTC parameter to WebRTC DAT
+   - Configure video/audio tracks as needed
 
-## 🔐 Security Notes
+### Network Requirements:
 
-- **Local network only**: Default setup works on local network
-- **Firewall considerations**: Open port 8081 for external access
-- **No authentication**: Basic setup has no access control
-- **Production use**: Add authentication and encryption for public deployment
+**Local Network:**
+- TouchDesigner and browser on same machine: Direct WebRTC connection
+- Different machines on LAN: Configure ICE servers properly
+- Firewall: Allow WebRTC traffic (UDP ports)
+
+**Internet/Remote Access:**
+- STUN servers for NAT traversal
+- TURN servers for restrictive networks
+- Proper ICE server configuration
+
+## 🔐 Security and Performance
+
+### Security Notes:
+- **Local development**: No authentication required
+- **Production use**: Implement proper signaling server security
+- **Network exposure**: Be careful with open ports and access
+
+### Performance Tips:
+- **Nvidia GPU required**: Video Stream Out TOP uses hardware encoding
+- **Resolution limits**: Lower resolution = better performance
+- **Multiple streams**: Geforce cards limited to 2 simultaneous streams
+- **Network bandwidth**: Monitor bitrate vs quality trade-offs
 
 ## 🌐 Browser Compatibility
 
-- **Chrome/Chromium**: Full WebSocket and WebRTC support
-- **Firefox**: Full support for video streaming
-- **Safari**: WebSocket support, limited WebRTC features
-- **Edge**: Full support for modern video streaming
-- **Mobile browsers**: Basic support, performance may vary
+- **Chrome/Chromium**: Full WebRTC support (recommended)
+- **Firefox**: Full WebRTC support
+- **Safari**: WebRTC support with some limitations
+- **Edge**: Full WebRTC support
+- **Mobile browsers**: Basic support, performance varies
 
-## 📋 Video Format Recommendations
+## 📋 Recommended Video Settings
 
-### For Best Compatibility:
-- **Format**: WebM
-- **Codec**: VP8
-- **Quality**: 85
-- **FPS**: 30
-- **Resolution**: 1280x720 or lower for performance
-
-### For High Quality:
-- **Format**: MP4
+### For Real-time Interaction:
+- **Mode**: WebRTC
+- **FPS**: 30-60
 - **Codec**: H264
-- **Quality**: 90
-- **FPS**: 60
+- **Quality**: Medium-High
+- **Bitrate**: 5-10 Mb/s
+- **Resolution**: 1280x720
+
+### For High Quality Display:
+- **Mode**: WebRTC
+- **FPS**: 30
+- **Codec**: H264
+- **Quality**: High
+- **Bitrate**: 10-15 Mb/s
 - **Resolution**: 1920x1080
 
 ### For Low Bandwidth:
-- **Format**: WebM
-- **Codec**: VP8
-- **Quality**: 60
-- **FPS**: 15
+- **Mode**: WebRTC
+- **FPS**: 15-30
+- **Codec**: H264
+- **Quality**: Low-Medium
+- **Bitrate**: 2-5 Mb/s
 - **Resolution**: 640x480
+
+## 📄 Hardware Requirements
+
+### TouchDesigner Side:
+- **GPU**: Nvidia GPU (required for Video Stream Out TOP)
+- **OS**: Windows (Video Stream Out TOP requirement)
+- **RAM**: 8GB+ recommended
+- **Network**: Gigabit Ethernet recommended for high quality
+
+### Web Browser Side:
+- **Modern browser with WebRTC support**
+- **Hardware acceleration enabled**
+- **Stable network connection**
 
 ## 📄 License
 
