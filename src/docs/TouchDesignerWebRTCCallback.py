@@ -1,4 +1,3 @@
-
 """
 TouchDesigner WebRTC DAT Callback Script
 Place this code in a DAT (set to Python) and reference it in your WebRTC DAT's Callbacks parameter.
@@ -85,10 +84,10 @@ def setupWebSocket():
         print("WebSocket connection closed")
     
     def on_open(ws):
-        print("WebSocket connection opened")
+        print("WebSocket connection opened to signaling server")
     
     try:
-        ws = websocket.WebSocketApp("ws://localhost:8080/webrtc-signaling",
+        ws = websocket.WebSocketApp("ws://localhost:8081/webrtc-signaling",
                                    on_message=on_message,
                                    on_error=on_error,
                                    on_close=on_close,

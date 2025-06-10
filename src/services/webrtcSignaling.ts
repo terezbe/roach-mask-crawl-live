@@ -1,4 +1,3 @@
-
 export interface SignalingMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'connection-request' | 'connection-response';
   data: any;
@@ -14,7 +13,7 @@ export class WebRTCSignaling {
     onError?: (error: Event) => void;
   } = {};
 
-  constructor(private wsUrl: string = 'ws://localhost:8080/webrtc-signaling') {}
+  constructor(private wsUrl: string = 'ws://localhost:8081/webrtc-signaling') {}
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
