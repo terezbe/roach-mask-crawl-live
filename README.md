@@ -1,7 +1,7 @@
 
-# Cockroach Avoidance Simulation with TouchDesigner WebRTC
+# Cockroach Avoidance Simulation with TouchDesigner Direct Video Streaming
 
-A real-time 2D simulation where cartoon cockroaches avoid white pixels from a live WebRTC video stream sent from TouchDesigner. Built for local development and professional TouchDesigner integration using WebRTC technology.
+A real-time 2D simulation where cartoon cockroaches avoid white pixels from a live video stream sent directly from TouchDesigner. Built for local development using TouchDesigner's Video Stream Out TOP for direct video streaming.
 
 ## 🚀 Quick Setup
 
@@ -19,57 +19,62 @@ npm run dev
 
 The app will be available at `http://localhost:8080`
 
-### 2. Configure TouchDesigner WebRTC Setup
+### 2. Configure TouchDesigner Direct Video Streaming
 
-**Create WebRTC Components in TouchDesigner:**
+**Method 1: Using Video Stream Out TOP (Recommended)**
 
-1. **Add signalingServer COMP from Palette:**
-   - Active: `On`
-   - Port: `443` (for secure) or `3001` (for non-secure)
-   - Secure (TLS): `On` (recommended) or `Off` (development only)
-   - Private Key File Path: Path to your `.key` file (if using TLS)
-   - Certificate File Path: Path to your `.crt` file (if using TLS)
+1. **Add Video Stream Out TOP from Palette:**
+   - Drag `Video Stream Out TOP` from the Palette into your network
+   - Connect your camera/mask TOP to the Video Stream Out TOP input
+   - Configure parameters:
+     - `Active`: `On`
+     - `Port`: `8081`
+     - `Protocol`: `WebSocket`
+     - `Format`: `WebM` (recommended)
+     - `Codec`: `VP8` or `H264`
+     - `Quality`: `80-90` for good balance
 
-2. **Add signalingClient COMP from Palette:**
-   - Active: `On`
-   - Host: `localhost` (or IP of machine running signaling server)
-   - Port: `443` (or `3001` for non-secure)
-   - Forward to Subscribers: `On`
+2. **Connect Your Video Source:**
+   - Connect your camera TOP (e.g., Video Device In TOP)
+   - Or connect your mask/processed video TOP
+   - The Video Stream Out will stream whatever is connected to its input
 
-3. **Add webRTCPanel COMP from Palette:**
-   - Active: `On`
-   - Panel: Reference to your panel COMP (e.g., a TOP or UI panel)
-   - Signaling Client: Reference to the signalingClient COMP created above
+**Method 2: Using WebRTC Direct Connection (Alternative)**
 
-### 3. TLS Certificate Setup (Recommended for Production)
+1. **Add Video Stream Out TOP:**
+   - Same as Method 1, but set `Protocol` to `WebRTC`
+   - Configure ICE servers if needed for network traversal
 
-For secure WebRTC connections, you need TLS certificates:
+2. **Configure WebRTC Settings:**
+   - `STUN Server`: `stun:stun.l.google.com:19302` (default)
+   - `TURN Server`: Configure if behind NAT/firewall
+   - `Bitrate`: Adjust based on network capacity
 
-**Generate Development Certificates:**
-```bash
-# Create self-signed certificate (development only)
-openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+### 3. TouchDesigner Network Setup Example
 
-# Convert to formats TouchDesigner accepts
-openssl rsa -in key.pem -out server.key
-openssl x509 -in cert.pem -out server.crt
+```
+[Video Device In TOP] → [Your Processing TOPs] → [Video Stream Out TOP]
+      (Camera)              (Filters/Effects)         (Streaming)
+
+OR
+
+[Movie File In TOP] → [Composite/Effects] → [Video Stream Out TOP]
+    (Video File)        (Your Processing)      (Streaming)
+
+OR
+
+[NDI In TOP] → [Color/Mask Processing] → [Video Stream Out TOP]
+  (NDI Source)     (Make White/Black Mask)    (Streaming)
 ```
 
-**Configure in TouchDesigner:**
-- Set `Private Key File Path` to your `server.key` file
-- Set `Certificate File Path` to your `server.crt` file
-
-### 4. Connect and Test
+### 4. Web Application Connection
 
 1. Open the simulation at `http://localhost:8080`
-2. Toggle "Secure Connection (TLS)" based on your TouchDesigner setup
-3. Enter your signaling server URL:
-   - Secure: `wss://localhost:443`
-   - Non-secure: `ws://localhost:3001`
-4. Click "Connect to Signaling Server"
-5. Select your TouchDesigner client from the dropdown
-6. Click "Start WebRTC Session"
-7. Your panel should stream via WebRTC and cockroaches should avoid white areas
+2. In the "TouchDesigner Video Stream" panel:
+   - **WebSocket Method**: Enter `ws://localhost:8081/video`
+   - **WebRTC Method**: Click "Try Direct WebRTC Connection"
+3. Click "Connect to Video Stream"
+4. Your video should appear and cockroaches will avoid white areas
 
 ## 🎛️ Configuration
 
@@ -78,113 +83,155 @@ openssl x509 -in cert.pem -out server.crt
 - **Avoidance Strength**: 0.1-5.0 (default: 2.5)
 - **Random Wander**: 0.0-1.0 (default: 0.3)
 - **Max Speed**: 0.5-5.0 (default: 2.0)
-- **Show Mask Overlay**: Toggle for debugging WebRTC stream
+- **Show Mask Overlay**: Toggle to see incoming video stream
 - **Auto-start**: Automatically start simulation on load
 
-### TouchDesigner WebRTC Integration
-- **Real-time WebRTC streaming**: Low-latency video streaming
-- **Automatic signaling**: Handles WebRTC negotiation automatically
-- **Multiple client support**: Connect multiple web clients to one TouchDesigner instance
-- **Secure connections**: TLS encryption for production environments
+### TouchDesigner Video Streaming
+- **Real-time video streaming**: Low-latency direct video streaming
+- **Multiple format support**: WebM, MP4, H264, VP8 codecs
+- **Flexible input sources**: Camera, NDI, files, processed video
+- **Quality control**: Adjustable bitrate and compression settings
 
-## 🛠️ TouchDesigner WebRTC Details
+## 🛠️ TouchDesigner Video Stream Details
 
-### Component Overview
-- **signalingServer COMP**: Manages WebRTC signaling and client connections
-- **signalingClient COMP**: Connects to signaling server and handles messaging
-- **webRTCPanel COMP**: Streams panel content via WebRTC to connected clients
+### Video Stream Out TOP Parameters
 
-### WebRTC Signaling Flow
-1. **Client Registration**: Web app registers with signaling server
-2. **Client Discovery**: Server broadcasts available clients
-3. **WebRTC Negotiation**: Standard WebRTC offer/answer/ICE exchange
-4. **Media Streaming**: Direct peer-to-peer video streaming
-5. **Frame Processing**: Real-time mask extraction for simulation
+**Basic Settings:**
+- **Active**: Turn on/off the streaming
+- **Port**: Network port for streaming (default: 8081)
+- **Protocol**: `WebSocket` for simple streaming, `WebRTC` for P2P
 
-### Advanced Configuration
+**Video Settings:**
+- **Format**: `WebM`, `MP4`, `AVI` (WebM recommended for web)
+- **Codec**: `VP8`, `VP9`, `H264` (VP8 recommended for compatibility)
+- **Quality**: 0-100 (80-90 recommended for good quality/performance)
+- **Bitrate**: Auto or manual bitrate control
+- **FPS**: Frame rate (match your project FPS)
 
-**STUN/TURN Servers:**
-TouchDesigner WebRTC components support external STUN/TURN servers for NAT traversal:
-- Default STUN: `stun:stun.l.google.com:19302`
-- For production, consider using dedicated STUN/TURN servers like Coturn
+**Advanced Settings:**
+- **Keyframe Interval**: For streaming efficiency
+- **Buffer Size**: Network buffer management
+- **Compression Level**: CPU vs quality trade-off
 
-**Security Considerations:**
-- Always use TLS (`wss://`) in production environments
-- Generate proper certificates for your domain
-- Consider firewall and NAT configurations for external access
+### Network Configuration
+
+**Local Network Setup:**
+- TouchDesigner and web browser on same machine: `localhost:8081`
+- TouchDesigner on different machine: `IP_ADDRESS:8081`
+- Firewall: Allow port 8081 for TouchDesigner
+
+**For External Access:**
+- Configure router port forwarding for port 8081
+- Use external IP address in web application
+- Consider security implications of exposing video stream
 
 ## 🔧 Troubleshooting
 
 ### Connection Issues
-- **"Connection failed"**: Check that TouchDesigner signalingServer is active
-- **"Certificate errors"**: Verify TLS certificate paths in TouchDesigner
-- **"No clients available"**: Ensure signalingClient COMP is active and connected
-- **"WebRTC connection fails"**: Check firewall settings and NAT configuration
+- **"Connection failed"**: Check that Video Stream Out TOP is Active=On
+- **"No video stream"**: Verify video source is connected to Video Stream Out input
+- **"Port already in use"**: Change port number in TouchDesigner and web app
+- **"WebSocket connection refused"**: Check firewall and port accessibility
 
-### WebRTC Issues
-- **"No video stream"**: Verify webRTCPanel has a valid panel reference
-- **"Poor video quality"**: Consider reducing panel resolution in TouchDesigner
-- **"High CPU usage"**: WebRTC encoding is CPU-intensive, monitor performance
-- **"Connection drops"**: Check network stability and consider TURN servers
+### Video Quality Issues
+- **"Choppy video"**: Reduce quality/bitrate or increase buffer size
+- **"Poor video quality"**: Increase quality setting or bitrate
+- **"High CPU usage"**: Lower quality, use hardware encoding if available
+- **"Lag/delay"**: Reduce buffer size, check network performance
 
-### Development vs Production
-- **Development**: Use `ws://` with self-signed certificates
-- **Production**: Use `wss://` with proper domain certificates
-- **Local testing**: Accept browser security warnings for self-signed certificates
+### TouchDesigner Setup Issues
+- **"No input video"**: Check that your video source TOP is connected
+- **"Video Stream Out not working"**: Verify TOP is Active and has valid input
+- **"Wrong video format"**: Try different codec (VP8 usually works best)
 
-### Common Fixes
-1. **Restart TouchDesigner** after changing WebRTC component settings
-2. **Check port conflicts** - ensure ports 443/3001 are available
-3. **Verify component references** - signalingClient must reference signalingServer
-4. **Clear browser cache** if experiencing persistent connection issues
+### Web Application Issues
+- **"No mask detection"**: Verify video contains white areas for avoidance
+- **"Cockroaches not responding"**: Check mask overlay to see if video is processed
+- **"Browser compatibility"**: Use Chrome/Firefox for best WebRTC support
 
 ## 📱 Features
 
-- **Real-time WebRTC streaming**: Low-latency video from TouchDesigner
-- **Interactive cockroach simulation**: Responds to live video masks
+- **Direct video streaming**: No complex signaling, simple WebSocket/WebRTC
+- **Real-time mask processing**: Instant response to video changes
+- **Multiple input sources**: Camera, NDI, files, live processing
 - **Responsive design**: Works on desktop and mobile browsers
-- **Visual debugging**: Toggle stream overlay to see incoming video
+- **Visual debugging**: Toggle video overlay to see incoming stream
 - **Persistent settings**: Configuration saves automatically
 - **Full-screen mode**: Perfect for installations and presentations
-- **Multi-client support**: Multiple browsers can connect simultaneously
 
-## 🎯 Example TouchDesigner WebRTC Flow
+## 🎯 Example TouchDesigner Setups
 
+### Setup 1: Live Camera Processing
 ```
-[Your Content] → [Panel COMP] → [webRTCPanel COMP] → [signalingClient COMP]
-                                        ↓
-                                [signalingServer COMP]
-                                        ↓
-                              [WebRTC Peer Connection]
-                                        ↓
-                              [Web Browser Simulation]
+[Video Device In] → [HSV Filter] → [Threshold] → [Video Stream Out]
 ```
+- Use camera input
+- Apply color filtering to create white/black mask
+- Stream processed mask for cockroach avoidance
 
-## 📋 WebRTC Message Types
+### Setup 2: NDI Source Processing
+```
+[NDI In] → [Color Replace] → [Blur] → [Video Stream Out]
+```
+- Receive NDI stream from another source
+- Process colors to create avoidance mask
+- Stream to web simulation
 
-The system uses standard WebRTC signaling messages:
+### Setup 3: Pre-recorded Content
+```
+[Movie File In] → [Composite] → [Effects] → [Video Stream Out]
+```
+- Use video file as source
+- Add effects and processing
+- Stream processed content
 
-- **clientRegistration**: Register web client with signaling server
-- **clientList**: Broadcast available TouchDesigner clients
-- **offer**: WebRTC offer with SDP
-- **answer**: WebRTC answer with SDP  
-- **ice**: ICE candidate for connection establishment
+### Setup 4: Live Mix Processing
+```
+[Video Device In] ↘
+                   [Composite] → [Video Stream Out]
+[Movie File In]   ↗
+```
+- Mix live camera with pre-recorded content
+- Create dynamic avoidance patterns
+- Stream composite result
 
 ## 🔐 Security Notes
 
-- WebRTC provides mandatory encryption for all media streams
-- Use secure WebSocket connections (`wss://`) for signaling
-- Generate proper TLS certificates for production deployments
-- Consider network security when exposing TouchDesigner externally
-- Review [WebRTC Security Considerations](https://datatracker.ietf.org/doc/html/rfc8826) for production use
+- **Local network only**: Default setup works on local network
+- **Firewall considerations**: Open port 8081 for external access
+- **No authentication**: Basic setup has no access control
+- **Production use**: Add authentication and encryption for public deployment
 
 ## 🌐 Browser Compatibility
 
-- **Chrome/Chromium**: Full WebRTC support
-- **Firefox**: Full WebRTC support
-- **Safari**: WebRTC support (may require additional configuration)
-- **Edge**: Full WebRTC support
-- **Mobile browsers**: Generally supported with some limitations
+- **Chrome/Chromium**: Full WebSocket and WebRTC support
+- **Firefox**: Full support for video streaming
+- **Safari**: WebSocket support, limited WebRTC features
+- **Edge**: Full support for modern video streaming
+- **Mobile browsers**: Basic support, performance may vary
+
+## 📋 Video Format Recommendations
+
+### For Best Compatibility:
+- **Format**: WebM
+- **Codec**: VP8
+- **Quality**: 85
+- **FPS**: 30
+- **Resolution**: 1280x720 or lower for performance
+
+### For High Quality:
+- **Format**: MP4
+- **Codec**: H264
+- **Quality**: 90
+- **FPS**: 60
+- **Resolution**: 1920x1080
+
+### For Low Bandwidth:
+- **Format**: WebM
+- **Codec**: VP8
+- **Quality**: 60
+- **FPS**: 15
+- **Resolution**: 640x480
 
 ## 📄 License
 

@@ -4,7 +4,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import ConfigPanel from './ConfigPanel';
 import SimulationCanvas from './SimulationCanvas';
-import StreamHandler from './StreamHandler';
+import SimpleVideoReceiver from './SimpleVideoReceiver';
 import { SimulationConfig, CockroachAgent } from '../types/simulation';
 
 const CockroachSimulation = () => {
@@ -162,7 +162,7 @@ const CockroachSimulation = () => {
                 Cockroach Avoidance Simulation
               </h1>
               <p className="text-muted-foreground">
-                Real-time 2D simulation with NDI/RTMP stream integration
+                Real-time 2D simulation with TouchDesigner direct video streaming
               </p>
             </div>
             
@@ -200,7 +200,7 @@ const CockroachSimulation = () => {
               onResetDefaults={resetToDefaults}
             />
             <div className="mt-4">
-              <StreamHandler
+              <SimpleVideoReceiver
                 onMaskUpdate={setMaskData}
                 showPreview={config.showMaskOverlay}
               />
