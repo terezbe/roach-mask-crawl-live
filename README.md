@@ -13,11 +13,16 @@ git clone <YOUR_GIT_URL>
 cd cockroach-avoidance-simulation
 npm install
 
-# Start development server
-npm run dev
+# Start both signaling server and development server
+node start-with-signaling.js
+
+# Or start them separately:
+# Terminal 1: node signaling-server.js
+# Terminal 2: npm run dev
 ```
 
-The app will be available at `http://localhost:8080`
+The app will be available at `http://localhost:5173`
+Signaling server will run on `ws://localhost:8081/webrtc-signaling`
 
 ### 2. Configure TouchDesigner WebRTC DAT Integration
 
@@ -86,37 +91,32 @@ The app will be available at `http://localhost:8080`
 [WebRTC DAT] ← [Callback Python DAT]
 ```
 
-### 3. Start WebRTC Signaling Server
+### 3. WebRTC Signaling Server
 
-The current implementation requires a WebSocket signaling server. You can:
+The implementation includes a dedicated WebSocket signaling server that handles offer/answer/ICE candidate exchange between TouchDesigner and the web application.
 
-1. **Use TouchDesigner's built-in signaling** (recommended)
-2. **Create a simple Node.js signaling server:**
-
-```javascript
-// signaling-server.js
-const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8080, path: '/webrtc-signaling' });
-
-wss.on('connection', (ws) => {
-  console.log('Client connected');
-  
-  ws.on('message', (message) => {
-    // Broadcast to all connected clients (TouchDesigner + Web App)
-    wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
-  });
-});
+**Automatic Setup:**
+```bash
+# Starts both signaling server and web app
+node start-with-signaling.js
 ```
+
+**Manual Setup:**
+```bash
+# Terminal 1: Start signaling server
+node signaling-server.js
+
+# Terminal 2: Start web application
+npm run dev
+```
+
+The signaling server runs on `ws://localhost:8081/webrtc-signaling` and broadcasts messages between TouchDesigner and the web application.
 
 ### 4. Connect Web Application
 
-1. Open the simulation at `http://localhost:8080`
+1. Open the simulation at `http://localhost:5173`
 2. In the "TouchDesigner WebRTC Stream" panel:
-   - Ensure signaling server is running
+   - Ensure signaling server is running on port 8081
    - Click "Connect to TouchDesigner WebRTC DAT"
 3. The web app will send a WebRTC offer to TouchDesigner
 4. TouchDesigner's callback DAT will handle the signaling
@@ -164,16 +164,21 @@ The callback script handles:
 ## 🔧 Troubleshooting
 
 ### WebRTC Connection Issues:
-- **"Signaling connection failed"**: Check WebSocket server is running on port 8080
+- **"Signaling connection failed"**: Check WebSocket server is running on port 8081
 - **"WebRTC connection failed"**: Verify ICE servers (STUN/TURN) configuration
 - **"No video track"**: Ensure Video Stream Out TOP WebRTC page is configured
 - **"Peer connection timeout"**: Check firewall settings and NAT configuration
 
 ### TouchDesigner Setup Issues:
 - **"WebRTC DAT not active"**: Set Active=On in WebRTC DAT parameters
-- **"Callback errors"**: Check Python DAT syntax and WebSocket connection
+- **"Callback errors"**: Check Python DAT syntax and WebSocket connection to port 8081
 - **"Video Stream Out not streaming"**: Verify input connection and Active=On
 - **"No WebRTC connection dropdown"**: Ensure WebRTC DAT is referenced correctly
+
+### Signaling Server Issues:
+- **"Connection forcibly closed"**: Restart signaling server with `node signaling-server.js`
+- **"Port 8081 in use"**: Kill existing process or change port in both signaling server and callback script
+- **"WebSocket error 10054"**: This indicates the signaling server is not running or crashed
 
 ### Performance Issues:
 - **"High CPU usage"**: Lower Video Stream Out TOP quality or FPS
@@ -183,7 +188,8 @@ The callback script handles:
 ### Network Requirements:
 
 **Local Development:**
-- WebSocket signaling server on localhost:8080
+- WebSocket signaling server on localhost:8081
+- Web application on localhost:5173
 - TouchDesigner and browser on same machine
 - Windows Firewall allowed for TouchDesigner
 
@@ -208,7 +214,7 @@ The callback script handles:
 ## 📱 Features
 
 - **Real-time WebRTC streaming**: Ultra-low latency via TouchDesigner WebRTC DAT
-- **Proper peer-to-peer connection**: Direct WebRTC without media servers
+- **Proper peer-to-peer connection**: Direct WebRTC with dedicated signaling server
 - **Hardware acceleration**: Nvidia GPU encoding in TouchDesigner
 - **Flexible video sources**: Camera, NDI, files, processed video
 - **Live mask processing**: Instant cockroach response to video changes
@@ -221,14 +227,14 @@ The callback script handles:
 ```
 [Video Device In] → [Video Stream Out] → [WebRTC Output]
                          ↓
-[WebRTC DAT] ← [Callback DAT] ← [WebSocket Server]
+[WebRTC DAT] ← [Callback DAT] ← [WebSocket Server:8081]
 ```
 
 ### Processed Mask Stream:
 ```
 [Camera] → [HSV] → [Threshold] → [Video Stream Out]
                                       ↓
-[WebRTC DAT] ← [Callback DAT] ← [Web Application]
+[WebRTC DAT] ← [Callback DAT] ← [Web Application:5173]
 ```
 
 ### Multiple Source Setup:
